@@ -129,9 +129,15 @@ class Provider(StrEnum):
 	Anthropic = auto()
 	xAI = auto()
 	Google = auto()
+	Pangram = auto()
 
 
 AVAILABLE_PROVIDERS = tuple(p.value for p in Provider)
+# Providers that only back dedicated tools (no chat models). They get API
+# accounts like any other provider but are skipped wherever a chat client or
+# chat model list is built.
+TOOL_ONLY_PROVIDERS = (Provider.Pangram,)
+CHAT_PROVIDERS = tuple(p for p in AVAILABLE_PROVIDERS if p not in TOOL_ONLY_PROVIDERS)
 
 
 class TranscriptionProvider(StrEnum):
@@ -196,6 +202,7 @@ BASE_URLs = {
 	Provider.Anthropic: "https://api.anthropic.com/v1",
 	Provider.xAI: "https://api.x.ai/v1",
 	Provider.Google: "https://generativelanguage.googleapis.com/v1beta",
+	Provider.Pangram: "https://text.external-api.pangram.com",
 }
 # Translators: Default English system prompt text applied to new AI-Hub conversations until the user changes it.
 DEFAULT_SYSTEM_PROMPT = _(

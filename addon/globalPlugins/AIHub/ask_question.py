@@ -30,7 +30,7 @@ MCI_ALIAS_ASK = "ask_audio"
 
 def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 	"""Find an eligible provider/model for ask-question flow."""
-	for provider in apikeymanager.AVAILABLE_PROVIDERS:
+	for provider in apikeymanager.CHAT_PROVIDERS:
 		if not apikeymanager.get(provider).isReady():
 			continue
 		try:
@@ -44,7 +44,7 @@ def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 		except Exception:
 			continue
 	if requires_audio_model:
-		for provider in apikeymanager.AVAILABLE_PROVIDERS:
+		for provider in apikeymanager.CHAT_PROVIDERS:
 			if not apikeymanager.get(provider).isReady():
 				continue
 			try:
@@ -53,7 +53,7 @@ def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 						return (provider, model.id, model)
 			except Exception:
 				continue
-	for provider in apikeymanager.AVAILABLE_PROVIDERS:
+	for provider in apikeymanager.CHAT_PROVIDERS:
 		if not apikeymanager.get(provider).isReady():
 			continue
 		try:

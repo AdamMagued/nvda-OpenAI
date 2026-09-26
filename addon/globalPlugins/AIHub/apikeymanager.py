@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from .consts import AVAILABLE_PROVIDERS, BASE_URLs, Provider
+from .consts import AVAILABLE_PROVIDERS, BASE_URLs, CHAT_PROVIDERS, Provider
 
 # Common environment variable names per provider (tried in order; first non-empty wins)
 _ENV_KEYS = {
@@ -14,6 +14,7 @@ _ENV_KEYS = {
 	Provider.Anthropic: ("ANTHROPIC_API_KEY", "ANTHROPIC_KEY"),
 	Provider.xAI: ("XAI_API_KEY", "XAI_KEY"),
 	Provider.Google: ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_AI_API_KEY"),
+	Provider.Pangram: ("PANGRAM_API_KEY",),
 }
 
 # Providers whose endpoint URL is stored per-account (custom Ollama host, etc.)

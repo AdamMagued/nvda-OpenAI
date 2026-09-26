@@ -67,7 +67,7 @@ class ModelHandlersMixin:
 
 	def _loadAccounts(self):
 		accounts = []
-		for provider in apikeymanager.AVAILABLE_PROVIDERS:
+		for provider in apikeymanager.CHAT_PROVIDERS:
 			manager = apikeymanager.get(provider)
 			for acc in manager.list_accounts(include_env=True):
 				if not manager.isReady(account_id=acc["id"]):

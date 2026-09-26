@@ -20,6 +20,7 @@ class ToolId(StrEnum):
 	OPENAI_TTS = auto()
 	OPENAI_TRANSCRIPTION = auto()
 	OLLAMA_MODEL_MANAGER = auto()
+	PANGRAM = auto()
 
 
 # Submenu group label shown to the user. We don't reuse Provider.MistralAI
@@ -94,11 +95,20 @@ TOOLS_REGISTRY = (
 		"dialog_module": ".tool_ollama_models_dialog",
 		"dialog_class": "OllamaModelManagerToolDialog",
 	},
+	{
+		"id": ToolId.PANGRAM,
+		# Translators: AI-Hub Tools menu: label for a submenu or action that opens a provider tool.
+		"label": _("AI detection and plagiarism check..."),
+		"group_label": Provider.Pangram,
+		"manager_provider": Provider.Pangram,
+		"dialog_module": ".tool_pangram_dialog",
+		"dialog_class": "PangramToolDialog",
+	},
 )
 
 
 # Order of the per-vendor submenus in the Tools menu.
-_GROUP_ORDER = (Provider.OpenAI, _GROUP_MISTRAL, Provider.Google, Provider.Ollama)
+_GROUP_ORDER = (Provider.OpenAI, _GROUP_MISTRAL, Provider.Google, Provider.Ollama, Provider.Pangram)
 
 _OPEN_TOOL_DIALOGS = []
 
@@ -184,6 +194,24 @@ def open_tool_dialog(parent, tool_def, conversationData=None, plugin=None):
 	dlg.Bind(wx.EVT_CLOSE, _on_close)
 	dlg.Show()
 	dlg.Raise()
+
+
+def open_tool_dialog_by_id(parent, tool_id, conversationData=None, plugin=None):
+	"""Open the registered tool ``tool_id`` (a ``ToolId``)."""
+	for tool_def in TOOLS_REGISTRY:
+		if tool_def["id"] == tool_id:
+			open_tool_dialog(parent, tool_def, conversationData=conversationData, plugin=plugin)
+			return
+
+
+def open_pangram_with_text(parent, text, plugin=None):
+	"""Open the Pangram tool with ``text`` pre-filled for AI detection."""
+	open_tool_dialog_by_id(
+		parent,
+		ToolId.PANGRAM,
+		conversationData={"formatData": {"action": "detect_text", "input_text": text or ""}},
+		plugin=plugin,
+	)
 
 
 def open_tool_dialog_by_class(parent, dialog_cls, conversationData=None, plugin=None):

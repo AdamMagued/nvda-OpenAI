@@ -494,6 +494,23 @@ class HistoryHandlersMixin:
 			api.copyToClip(text)
 		self.message(msg)
 
+	def onCheckMessageWithPangram(self, evt):
+		"""Open the Pangram tool on the selected history text, or the current message."""
+		from .toolsmenu import open_pangram_with_text
+		text = get_textctrl_selected_text(self.messagesTextCtrl)
+		if not text:
+			segment, block = self._getCurrentSegmentBlock()
+			if segment is None:
+				return
+			if self._segmentKind(block, segment) == "prompt":
+				label_text, text = self._getBlockTextByKind(block, "prompt")
+			else:
+				text = block.responseText or ""
+		if not (text or "").strip():
+			wx.Bell()
+			return
+		open_pangram_with_text(self, text, plugin=getattr(self, "_plugin", None))
+
 	def _block_has_submittable_content(self, block):
 		if not block:
 			return False
@@ -730,6 +747,10 @@ class HistoryHandlersMixin:
 		toggle_label = _("Hide thinking in history") if getattr(self, "_showThinkingInHistory", True) else _("Show thinking in history")
 		menu.Append(item_id, toggle_label + " (R)")
 		self.Bind(wx.EVT_MENU, self.onToggleThinkingInHistory, id=item_id)
+		item_id = wx.NewIdRef()
+		# Translators: AI-Hub conversation — message history area: opens the Pangram tool on the selected text or current message to detect AI-generated content.
+		menu.Append(item_id, _("Check with Pangram (AI detection)..."))
+		self.Bind(wx.EVT_MENU, self.onCheckMessageWithPangram, id=item_id)
 		item_id = wx.NewIdRef()
 		# Translators: AI-Hub conversation — message history area: entry in a context menu or submenu.
 		menu.Append(item_id, _("Copy response to system") + " (Alt+Left)")

@@ -101,6 +101,35 @@ class MenuMixin:
 	def script_showConversationsManager(self, gesture):
 		self.onShowConversationsManager(None)
 
+	def _getSelectedText(self) -> str:
+		"""Return the text selected in the focused object (browse mode aware), or ""."""
+		import textInfos
+		obj = api.getFocusObject()
+		tree_interceptor = getattr(obj, "treeInterceptor", None)
+		if tree_interceptor is not None and not getattr(tree_interceptor, "passThrough", True):
+			obj = tree_interceptor
+		try:
+			info = obj.makeTextInfo(textInfos.POSITION_SELECTION)
+		except Exception:
+			return ""
+		if not info or info.isCollapsed:
+			return ""
+		return info.text or ""
+
+	def script_pangramCheckSelection(self, gesture):
+		from .toolsmenu import open_pangram_with_text
+		text = self._getSelectedText()
+		if not text.strip():
+			try:
+				text = api.getClipData() or ""
+			except Exception:
+				text = ""
+		if not text.strip():
+			# Translators: AI-Hub global script: feedback when there is neither selected text nor clipboard text to send to Pangram.
+			ui.message(_("No selected text or clipboard text to check"))
+			return
+		wx.CallAfter(open_pangram_with_text, None, text, plugin=self)
+
 
 class DialogSessionMixin:
 	def _showNoAccountConfiguredDialog(self):
@@ -362,7 +391,7 @@ class AskRecordingMixin:
 			self.askRecordThread.start()
 			return
 
-		for provider in apikeymanager.AVAILABLE_PROVIDERS:
+		for provider in apikeymanager.CHAT_PROVIDERS:
 			if not apikeymanager.get(provider).isReady():
 				continue
 			try:

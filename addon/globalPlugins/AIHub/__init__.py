@@ -71,7 +71,7 @@ class GlobalPlugin(MenuMixin, DialogSessionMixin, AskRecordingMixin, globalPlugi
 	def getClient(self):
 		if conf["renewClient"]:
 			conf["renewClient"] = False
-		for provider in apikeymanager.AVAILABLE_PROVIDERS:
+		for provider in apikeymanager.CHAT_PROVIDERS:
 			manager = apikeymanager.get(provider)
 			if not manager.isReady():
 				continue
@@ -134,3 +134,11 @@ class GlobalPlugin(MenuMixin, DialogSessionMixin, AskRecordingMixin, globalPlugi
 	)
 	def script_toggleRecording(self, gesture):
 		super().script_toggleRecording(gesture)
+
+	# Translators: Script description shown in NVDA input gestures for the Pangram AI detection tool.
+	@script(
+		# Translators: AI-Hub Input Gestures (assignable scripts): description of an assignable NVDA script.
+		description=_("Check the selected text (or the clipboard) for AI-generated content with Pangram"),
+	)
+	def script_pangramCheckSelection(self, gesture):
+		super().script_pangramCheckSelection(gesture)

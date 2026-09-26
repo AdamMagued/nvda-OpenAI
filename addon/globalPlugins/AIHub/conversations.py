@@ -51,6 +51,7 @@ class ConversationFormat(StrEnum):
 			"TOOL_MISTRAL_SPEECH_TO_TEXT": "tool/mistral/speech-to-text",
 			"TOOL_OPENAI_TTS": "tool/openai/tts",
 			"TOOL_OPENAI_TRANSCRIPTION": "tool/openai/transcription",
+			"TOOL_PANGRAM": "tool/pangram",
 		}
 		return mapping[name]
 
@@ -61,6 +62,7 @@ class ConversationFormat(StrEnum):
 	TOOL_MISTRAL_SPEECH_TO_TEXT = auto()
 	TOOL_OPENAI_TTS = auto()
 	TOOL_OPENAI_TRANSCRIPTION = auto()
+	TOOL_PANGRAM = auto()
 
 
 def normalize_conversation_format(value) -> ConversationFormat:
@@ -150,6 +152,20 @@ def _serialize_format_data(conv_format: ConversationFormat | str, data: dict | N
 			"known_speaker_references": raw.get("known_speaker_references", ""),
 			"text_path": _persist_path_maybe(raw.get("text_path", ""), "documents", "openai_stt", ".txt"),
 			"raw_path": _persist_path_maybe(raw.get("raw_path", ""), "documents", "openai_stt", ".json"),
+		}
+	if conv_format == ConversationFormat.TOOL_PANGRAM:
+		files = raw.get("files", [])
+		links = raw.get("dashboard_links", [])
+		return {
+			"action": raw.get("action", ""),
+			"model": raw.get("model", ""),
+			"input_text": raw.get("input_text", ""),
+			"files": [p for p in files if isinstance(p, str) and p] if isinstance(files, list) else [],
+			"public_dashboard_link": bool(raw.get("public_dashboard_link", False)),
+			"dashboard_links": [u for u in links if isinstance(u, str) and u] if isinstance(links, list) else [],
+			"report_path": _persist_path_maybe(raw.get("report_path", ""), "documents", "pangram", ".txt"),
+			"json_path": _persist_path_maybe(raw.get("json_path", ""), "documents", "pangram", ".json"),
+			"report_preview": raw.get("report_preview", ""),
 		}
 	return raw
 
@@ -302,6 +318,11 @@ def _collect_file_entries(data: dict) -> list[dict]:
 			_add(fmt_data.get("input_audio_path", ""), "input", "openai-stt-input")
 			_add(fmt_data.get("text_path", ""), "output", "openai-stt-text")
 			_add(fmt_data.get("raw_path", ""), "output", "openai-stt-raw")
+		elif fmt == ConversationFormat.TOOL_PANGRAM:
+			for path in fmt_data.get("files", []) or []:
+				_add(path, "input", "pangram-file")
+			_add(fmt_data.get("report_path", ""), "output", "pangram-report")
+			_add(fmt_data.get("json_path", ""), "output", "pangram-json")
 	return files
 
 

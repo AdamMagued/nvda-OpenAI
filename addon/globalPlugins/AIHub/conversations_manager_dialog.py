@@ -22,6 +22,7 @@ from .tool_mistral_ocr_dialog import MistralOCRToolDialog
 from .tool_mistral_transcription_dialog import MistralSpeechToTextToolDialog
 from .tool_openai_transcription_dialog import OpenAITranscriptionToolDialog
 from .tool_openai_tts_dialog import OpenAITTSToolDialog
+from .tool_pangram_dialog import PangramToolDialog
 from .toolsmenu import open_tool_dialog_by_class
 from .tool_voxtral_tts_dialog import VoxtralTTSToolDialog
 
@@ -768,6 +769,7 @@ class ConversationsManagerDialog(wx.Dialog):
 			ConversationFormat.TOOL_GOOGLE_LYRIA_PRO: Lyria3ProToolDialog,
 			ConversationFormat.TOOL_OPENAI_TTS: OpenAITTSToolDialog,
 			ConversationFormat.TOOL_OPENAI_TRANSCRIPTION: OpenAITranscriptionToolDialog,
+			ConversationFormat.TOOL_PANGRAM: PangramToolDialog,
 		}
 		for data in loaded:
 			conv_format = normalize_conversation_format(data.get("format", ConversationFormat.GENERIC.value))
