@@ -67,7 +67,7 @@ class MenuMixin:
 			2,
 			wx.ID_ANY,
 			# Translators: Text in AI-Hub menu items and script prompts.
-			_("AI &Hub {addon_version}".format(addon_version=ADDON_INFO["version"])),
+			_("&AI Hub {addon_version}").format(addon_version=ADDON_INFO["version"]),
 			self.submenu
 		)
 

@@ -2000,8 +2000,8 @@ msgstr "Відкрити веб-сайт BasiliskLLM"
 
 #: AIHub/plugin_mixins.py:70
 #, python-brace-format
-msgid "AI &Hub {addon_version}"
-msgstr "AI &Hub {addon_version}"
+msgid "&AI Hub {addon_version}"
+msgstr "&AI Hub {addon_version}"
 
 #: AIHub/plugin_mixins.py:109
 msgid ""

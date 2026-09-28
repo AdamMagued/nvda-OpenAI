@@ -2350,8 +2350,8 @@ msgstr "Ouvrir le site web de BasiliskLLM"
 #. Translators: Text in AI-Hub menu items and script prompts.
 #: addon\globalPlugins\AIHub\plugin_mixins.py:70
 #, python-brace-format
-msgid "AI &Hub {addon_version}"
-msgstr "AI &Hub {addon_version}"
+msgid "&AI Hub {addon_version}"
+msgstr "&AI Hub {addon_version}"
 
 #. Translators: Error dialog body when opening AI-Hub without any configured API account (menu path included for the user).
 #: addon\globalPlugins\AIHub\plugin_mixins.py:109
