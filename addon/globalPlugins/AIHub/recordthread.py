@@ -22,6 +22,7 @@ from keyboardHandler import KeyboardInputGesture
 
 from . import apikeymanager
 from .apiclient import (
+	OpenAIClient,
 	build_multipart_body,
 	http_request_json,
 	Transcription,
@@ -57,15 +58,18 @@ def transcribe_audio_file(path, conf, client=None):
 		return None
 	provider = get_transcription_provider(conf)
 	if provider == TranscriptionProvider.WHISPER_CPP:
-		rt = RecordThread(client or object(), conf=conf)
+		rt = RecordThread(client or object(), conf=conf, transcriptionProvider=provider)
 		result = rt._transcribe_whisper_cpp(path)
 	elif provider == TranscriptionProvider.MISTRAL:
-		rt = RecordThread(client or object(), conf=conf)
+		rt = RecordThread(client or object(), conf=conf, transcriptionProvider=provider)
 		result = rt._transcribe_mistral(path)
+	elif provider == TranscriptionProvider.CUSTOM_OPENAI:
+		rt = RecordThread(client or OpenAIClient(), conf=conf, transcriptionProvider=provider)
+		result = rt._transcribe_custom_openai(path)
 	else:
 		if not client:
 			return None
-		rt = RecordThread(client, conf=conf)
+		rt = RecordThread(client, conf=conf, transcriptionProvider=provider)
 		result = rt._transcribe_openai(path)
 	if result is None:
 		return None
@@ -154,12 +158,17 @@ class RecordThread(threading.Thread):
 			manager = apikeymanager.get(chat_provider)
 			if not self._transcriptionAccountId:
 				self._transcriptionAccountId = (conf or {}).get(account_key, "")
+				if not self._transcriptionAccountId and chat_provider == Provider.CustomOpenAI:
+					self._transcriptionAccountId = (conf or {}).get("customOpenAITranscriptionAccountId", "")
 			if self._transcriptionAccountId and not manager.isReady(account_id=self._transcriptionAccountId):
 				self._transcriptionAccountId = ""
 			if not self._transcriptionAccountId:
 				self._transcriptionAccountId = manager.get_active_account_id()
 			if not self._transcriptionModel:
-				self._transcriptionModel = (conf or {}).get(model_key, "") or default_model
+				self._transcriptionModel = (conf or {}).get(model_key, "")
+				if not self._transcriptionModel and chat_provider == Provider.CustomOpenAI:
+					self._transcriptionModel = (conf or {}).get("customOpenAITranscriptionModel", "")
+				self._transcriptionModel = self._transcriptionModel or default_model
 
 	def run(self):
 		if self.audioFile:
@@ -425,6 +434,29 @@ class RecordThread(threading.Thread):
 				response_format=self.responseFormat,
 			)
 
+	def _transcribe_custom_openai(self, filename):
+		"""Transcribe via Custom OpenAI-compatible endpoint."""
+		manager = apikeymanager.get(Provider.CustomOpenAI)
+		account_id = self._transcriptionAccountId or manager.get_active_account_id()
+		base_url = manager.get_base_url(account_id=account_id)
+		if not base_url or not base_url.strip():
+			# Translators: Text in recording thread status and error messages.
+			raise ValueError(_("No Custom OpenAI endpoint URL configured. Please add one in AI-Hub settings."))
+		client = self.client if (self.client and hasattr(self.client, "clone")) else OpenAIClient()
+		client = configure_client_for_provider(
+			client,
+			Provider.CustomOpenAI,
+			account_id=account_id,
+			clone=True,
+		)
+		model = self._transcriptionModel or (self.conf or {}).get("customOpenAITranscriptionModel", "") or (self.conf or {}).get("whisperModel", "whisper-1")
+		with open(filename, "rb") as audio_file:
+			return client.audio.transcriptions.create(
+				model=model,
+				file=audio_file,
+				response_format=self.responseFormat,
+			)
+
 	def process_transcription(self, filename):
 		if self._wantAbort:
 			return
@@ -435,6 +467,8 @@ class RecordThread(threading.Thread):
 				transcription = self._transcribe_whisper_cpp(filename)
 			elif provider == TranscriptionProvider.MISTRAL:
 				transcription = self._transcribe_mistral(filename)
+			elif provider == TranscriptionProvider.CUSTOM_OPENAI:
+				transcription = self._transcribe_custom_openai(filename)
 			else:
 				transcription = self._transcribe_openai(filename)
 		except Exception as err:

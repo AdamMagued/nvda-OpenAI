@@ -357,9 +357,21 @@ class AskRecordingMixin:
 		from .model import getModels
 		from .recordthread import RecordThread
 		from . import conversation_dialog
+		from .transcription import get_transcription_provider
+		from .consts import TranscriptionProvider
+		from .apiclient import OpenAIClient, configure_client_for_provider
 
-		if not self.getClient():
-			return ui.message(NO_AUTHENTICATION_KEY_PROVIDED_MSG)
+		client = self.getClient()
+		if not client:
+			provider = get_transcription_provider(conf.get("audio", {}))
+			if provider == TranscriptionProvider.WHISPER_CPP.value:
+				client = object()
+			elif provider == TranscriptionProvider.CUSTOM_OPENAI.value and apikeymanager.get(Provider.CustomOpenAI).isReady():
+				client = configure_client_for_provider(OpenAIClient(), Provider.CustomOpenAI)
+			elif provider == TranscriptionProvider.MISTRAL.value and apikeymanager.get(Provider.MistralAI).isReady():
+				client = object()
+			else:
+				return ui.message(NO_AUTHENTICATION_KEY_PROVIDED_MSG)
 		if self._askAudioPlaying:
 			mci_stop_ask_audio()
 			self._askAudioPlaying = False
@@ -426,9 +438,21 @@ class AskRecordingMixin:
 	def script_toggleRecording(self, gesture):
 		from . import conversation_dialog
 		from .recordthread import RecordThread
+		from .transcription import get_transcription_provider
+		from .consts import TranscriptionProvider
+		from .apiclient import OpenAIClient, configure_client_for_provider
 
-		if not self.getClient():
-			return ui.message(NO_AUTHENTICATION_KEY_PROVIDED_MSG)
+		client = self.getClient()
+		if not client:
+			provider = get_transcription_provider(conf.get("audio", {}))
+			if provider == TranscriptionProvider.WHISPER_CPP.value:
+				client = object()
+			elif provider == TranscriptionProvider.CUSTOM_OPENAI.value and apikeymanager.get(Provider.CustomOpenAI).isReady():
+				client = configure_client_for_provider(OpenAIClient(), Provider.CustomOpenAI)
+			elif provider == TranscriptionProvider.MISTRAL.value and apikeymanager.get(Provider.MistralAI).isReady():
+				client = object()
+			else:
+				return ui.message(NO_AUTHENTICATION_KEY_PROVIDED_MSG)
 		dlg = conversation_dialog.activeChatDlg
 		if dlg and dlg.IsShown() and hasattr(dlg, "_prompt_ctrl_has_focus") and dlg._prompt_ctrl_has_focus():
 			dlg.onRecord(None)
@@ -437,5 +461,5 @@ class AskRecordingMixin:
 			stop_worker_thread(self.recordThread)
 			self.recordThread = None
 			return
-		self.recordThread = RecordThread(self.getClient(), conf=conf["audio"])
+		self.recordThread = RecordThread(client, conf=conf["audio"])
 		self.recordThread.start()

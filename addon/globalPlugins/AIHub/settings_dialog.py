@@ -274,11 +274,15 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			wx.Choice,
 			choices=[],
 		)
+		self.customOpenAITranscriptionAccountChoice = self.customOpenaiTranscriptionAccountChoice
 		self.customOpenaiTranscriptionModel = accountsMapGroup.addLabeledControl(
 			# Translators: NVDA Preferences — AI-Hub category: Recording — model id sent to the custom OpenAI-compatible transcription endpoint.
 			_("Custom OpenAI-compatible transcription &model:"),
 			wx.TextCtrl,
-			value=conf["audio"].get("customOpenaiTranscriptionModel", "whisper-1"),
+			value=(
+				conf["audio"].get("customOpenaiTranscriptionModel", "")
+				or conf["audio"].get("customOpenAITranscriptionModel", "whisper-1")
+			),
 		)
 		self._refreshTranscriptionAccountChoices()
 		recordingGroup.addItem(accountsMapSizer)
@@ -341,6 +345,7 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		audio_conf = conf.get("audio", {})
 		openai_id = audio_conf.get("openaiTranscriptionAccountId", "")
 		mistral_id = audio_conf.get("mistralTranscriptionAccountId", "")
+		custom_openai_id = audio_conf.get("customOpenAITranscriptionAccountId", "")
 		labels, ids, selected_idx = self._buildTranscriptionAccountChoices(Provider.OpenAI, openai_id)
 		self._openaiTranscriptionAccountIds = ids
 		self.openaiTranscriptionAccountChoice.SetItems(labels)
@@ -349,12 +354,14 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self._mistralTranscriptionAccountIds = ids
 		self.mistralTranscriptionAccountChoice.SetItems(labels)
 		self.mistralTranscriptionAccountChoice.SetSelection(selected_idx)
-		if hasattr(self, "customOpenaiTranscriptionAccountChoice"):
-			custom_id = audio_conf.get("customOpenaiTranscriptionAccountId", "")
+		if hasattr(self, "customOpenaiTranscriptionAccountChoice") or hasattr(self, "customOpenAITranscriptionAccountChoice"):
+			choice_ctrl = getattr(self, "customOpenaiTranscriptionAccountChoice", None) or getattr(self, "customOpenAITranscriptionAccountChoice", None)
+			custom_id = audio_conf.get("customOpenaiTranscriptionAccountId", "") or audio_conf.get("customOpenAITranscriptionAccountId", "")
 			labels, ids, selected_idx = self._buildTranscriptionAccountChoices(Provider.CustomOpenAI, custom_id)
 			self._customOpenaiTranscriptionAccountIds = ids
-			self.customOpenaiTranscriptionAccountChoice.SetItems(labels)
-			self.customOpenaiTranscriptionAccountChoice.SetSelection(selected_idx)
+			self._customOpenAITranscriptionAccountIds = ids
+			choice_ctrl.SetItems(labels)
+			choice_ctrl.SetSelection(selected_idx)
 
 	def onManageAccounts(self, evt):
 		from .accounts_dialog import show_accounts_management
@@ -405,8 +412,12 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.whisperHost.Enable(is_whisper_cpp)
 		self.openaiTranscriptionAccountChoice.Enable(is_openai)
 		self.mistralTranscriptionAccountChoice.Enable(is_mistral)
-		self.customOpenaiTranscriptionAccountChoice.Enable(is_custom_openai)
-		self.customOpenaiTranscriptionModel.Enable(is_custom_openai)
+		if hasattr(self, "customOpenaiTranscriptionAccountChoice"):
+			self.customOpenaiTranscriptionAccountChoice.Enable(is_custom_openai)
+		if hasattr(self, "customOpenaiTranscriptionModel"):
+			self.customOpenaiTranscriptionModel.Enable(is_custom_openai)
+		if hasattr(self, "customOpenAITranscriptionAccountChoice") and self.customOpenAITranscriptionAccountChoice is not getattr(self, "customOpenaiTranscriptionAccountChoice", None):
+			self.customOpenAITranscriptionAccountChoice.Enable(is_custom_openai)
 
 	def onTrimSilenceChange(self, evt):
 		self.minSilenceSec.Enable(self.trimSilenceCheckbox.GetValue())
@@ -463,15 +474,17 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 			if 0 <= mistral_idx < len(getattr(self, "_mistralTranscriptionAccountIds", []))
 			else ""
 		)
-		custom_idx = self.customOpenaiTranscriptionAccountChoice.GetSelection()
-		conf["audio"]["customOpenaiTranscriptionAccountId"] = (
-			self._customOpenaiTranscriptionAccountIds[custom_idx]
-			if 0 <= custom_idx < len(getattr(self, "_customOpenaiTranscriptionAccountIds", []))
-			else ""
-		)
-		conf["audio"]["customOpenaiTranscriptionModel"] = (
-			self.customOpenaiTranscriptionModel.GetValue().strip() or "whisper-1"
-		)
+		custom_ctrl = getattr(self, "customOpenaiTranscriptionAccountChoice", None) or getattr(self, "customOpenAITranscriptionAccountChoice", None)
+		if custom_ctrl:
+			custom_idx = custom_ctrl.GetSelection()
+			custom_ids = getattr(self, "_customOpenaiTranscriptionAccountIds", None) or getattr(self, "_customOpenAITranscriptionAccountIds", [])
+			account_val = custom_ids[custom_idx] if 0 <= custom_idx < len(custom_ids) else ""
+			conf["audio"]["customOpenaiTranscriptionAccountId"] = account_val
+			conf["audio"]["customOpenAITranscriptionAccountId"] = account_val
+		if hasattr(self, "customOpenaiTranscriptionModel"):
+			model_val = self.customOpenaiTranscriptionModel.GetValue().strip() or "whisper-1"
+			conf["audio"]["customOpenaiTranscriptionModel"] = model_val
+			conf["audio"]["customOpenAITranscriptionModel"] = model_val
 		conf["audio"]["trimSilence"] = self.trimSilenceCheckbox.GetValue()
 		conf["audio"]["minSilenceSec"] = int(self.minSilenceSec.GetValue())
 		for key, item in self.chatFeedback.items():

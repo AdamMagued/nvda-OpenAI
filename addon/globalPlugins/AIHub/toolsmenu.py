@@ -19,6 +19,7 @@ class ToolId(StrEnum):
 	LYRIA_3_PRO = auto()
 	OPENAI_TTS = auto()
 	OPENAI_TRANSCRIPTION = auto()
+	CUSTOM_OPENAI_TRANSCRIPTION = auto()
 	OLLAMA_MODEL_MANAGER = auto()
 	PANGRAM = auto()
 
@@ -89,6 +90,15 @@ TOOLS_REGISTRY = (
 		"dialog_class": "OpenAITranscriptionToolDialog",
 	},
 	{
+		"id": ToolId.CUSTOM_OPENAI_TRANSCRIPTION,
+		# Translators: AI-Hub Tools menu: label for a submenu or action that opens a provider tool.
+		"label": _("Transcription / Translation..."),
+		"group_label": Provider.CustomOpenAI,
+		"manager_provider": Provider.CustomOpenAI,
+		"dialog_module": ".tool_openai_transcription_dialog",
+		"dialog_class": "CustomOpenAITranscriptionToolDialog",
+	},
+	{
 		"id": ToolId.OLLAMA_MODEL_MANAGER,
 		# Translators: AI-Hub Tools menu: label for a submenu or action that opens a provider tool.
 		"label": _("Model manager..."),
@@ -110,7 +120,7 @@ TOOLS_REGISTRY = (
 
 
 # Order of the per-vendor submenus in the Tools menu.
-_GROUP_ORDER = (Provider.OpenAI, _GROUP_MISTRAL, Provider.Google, Provider.Ollama, Provider.Pangram)
+_GROUP_ORDER = (Provider.OpenAI, _GROUP_MISTRAL, Provider.Google, Provider.Ollama, Provider.CustomOpenAI, Provider.Pangram)
 
 _OPEN_TOOL_DIALOGS = []
 

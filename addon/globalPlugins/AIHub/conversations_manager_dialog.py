@@ -20,7 +20,7 @@ from .list_dialog_utils import (
 from .tool_lyria_dialog import Lyria3ProToolDialog
 from .tool_mistral_ocr_dialog import MistralOCRToolDialog
 from .tool_mistral_transcription_dialog import MistralSpeechToTextToolDialog
-from .tool_openai_transcription_dialog import OpenAITranscriptionToolDialog
+from .tool_openai_transcription_dialog import OpenAITranscriptionToolDialog, CustomOpenAITranscriptionToolDialog
 from .tool_openai_tts_dialog import OpenAITTSToolDialog
 from .tool_pangram_dialog import PangramToolDialog
 from .toolsmenu import open_tool_dialog_by_class
@@ -771,6 +771,7 @@ class ConversationsManagerDialog(wx.Dialog):
 			ConversationFormat.TOOL_GOOGLE_LYRIA_PRO: Lyria3ProToolDialog,
 			ConversationFormat.TOOL_OPENAI_TTS: OpenAITTSToolDialog,
 			ConversationFormat.TOOL_OPENAI_TRANSCRIPTION: OpenAITranscriptionToolDialog,
+			ConversationFormat.TOOL_CUSTOM_OPENAI_TRANSCRIPTION: CustomOpenAITranscriptionToolDialog,
 			ConversationFormat.TOOL_PANGRAM: PangramToolDialog,
 		}
 		for data in loaded:

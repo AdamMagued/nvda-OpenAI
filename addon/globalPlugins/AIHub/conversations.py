@@ -51,6 +51,7 @@ class ConversationFormat(StrEnum):
 			"TOOL_MISTRAL_SPEECH_TO_TEXT": "tool/mistral/speech-to-text",
 			"TOOL_OPENAI_TTS": "tool/openai/tts",
 			"TOOL_OPENAI_TRANSCRIPTION": "tool/openai/transcription",
+			"TOOL_CUSTOM_OPENAI_TRANSCRIPTION": "tool/customopenai/transcription",
 			"TOOL_PANGRAM": "tool/pangram",
 		}
 		return mapping[name]
@@ -62,6 +63,7 @@ class ConversationFormat(StrEnum):
 	TOOL_MISTRAL_SPEECH_TO_TEXT = auto()
 	TOOL_OPENAI_TTS = auto()
 	TOOL_OPENAI_TRANSCRIPTION = auto()
+	TOOL_CUSTOM_OPENAI_TRANSCRIPTION = auto()
 	TOOL_PANGRAM = auto()
 
 

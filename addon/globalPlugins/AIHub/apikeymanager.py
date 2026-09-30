@@ -328,7 +328,7 @@ class APIKeyManager:
 			account["base_url"] = _normalize_ollama_base_url((base_url or "").strip())
 		else:
 			account["base_url"] = None
-		if self.provider != Provider.Ollama and not account["api_key"]:
+		if self.provider not in _USER_ENDPOINT_PROVIDERS and not account["api_key"]:
 			raise ValueError("API key is required")
 		bucket.setdefault("accounts", []).append(account)
 		if set_active or not bucket.get("active_account_id"):
