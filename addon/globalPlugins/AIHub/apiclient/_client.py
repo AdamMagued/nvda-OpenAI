@@ -537,6 +537,27 @@ class OpenAIClient:
 MISTRAL_API_BASE = "https://api.mistral.ai/v1"
 
 
+def mistral_api_request(
+	api_key: str,
+	path: str,
+	body: Optional[dict] = None,
+	base_url: Optional[str] = None,
+	timeout: int = 180,
+) -> Any:
+	"""JSON request to the Mistral API (GET without ``body``), Bearer-authenticated."""
+	if not api_key or not api_key.strip():
+		raise ValueError("Mistral API key is required")
+	url = (base_url or MISTRAL_API_BASE).rstrip("/") + "/" + path.lstrip("/")
+	data = json.dumps(body).encode("utf-8") if body is not None else None
+	req = urllib.request.Request(
+		url,
+		data=data,
+		headers=_build_headers(api_key.strip(), None),
+		method="POST" if body is not None else "GET",
+	)
+	return _open_json(_create_opener(), req, timeout=timeout)
+
+
 def mistral_transcription_request(
 	api_key: str,
 	file_path: str,

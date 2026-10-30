@@ -5,13 +5,13 @@ import json
 import mimetypes
 import os
 import threading
-import urllib.request
 import winsound
 
 import addonHandler
 import wx
 from logHandler import log
 
+from .apiclient import mistral_api_request
 from .conversations import ConversationFormat
 from .consts import (
 	Provider,
@@ -28,6 +28,44 @@ from .thread_shutdown import stop_worker_thread
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
+
+# ResponseFormat types: https://docs.mistral.ai/api/endpoint/ocr
+# json_schema uses the schema typed in the "Annotation JSON schema" field.
+_ANNOTATION_FORMATS = ("", "text", "json_object", "json_schema")
+# Values saved by earlier versions of the tool.
+_LEGACY_ANNOTATION_FORMATS = {"json": "json_object"}
+# Confidence scores need OCR 4 or newer: https://docs.mistral.ai/capabilities/document_ai/basic_ocr
+_CONFIDENCE_GRANULARITIES = ("", "page", "block", "word")
+
+
+def _annotation_format(fmt_type: str, schema_text: str, name: str) -> dict:
+	"""Build a ResponseFormat object; json_schema wraps the user's JSON schema."""
+	if fmt_type != "json_schema":
+		return {"type": fmt_type}
+	try:
+		schema = json.loads(schema_text) if schema_text else None
+	except ValueError:
+		schema = None
+	if not isinstance(schema, dict):
+		# Translators: Validation error when the json_schema annotation format is chosen without a valid JSON schema (Mistral OCR tool).
+		raise ValueError(_("Enter a valid JSON schema to use the json_schema annotation format."))
+	# Accept either a bare schema or a full {"name", "schema", "strict"} object.
+	json_schema = schema if "schema" in schema else {"name": name, "schema": schema, "strict": True}
+	return {"type": "json_schema", "json_schema": json_schema}
+
+
+def format_ocr_annotation(payload) -> str:
+	"""Readable ``document_annotation`` of an OCR result, or ``""``."""
+	annotation = payload.get("document_annotation") if isinstance(payload, dict) else None
+	if not annotation:
+		return ""
+	if isinstance(annotation, str):
+		try:
+			annotation = json.loads(annotation)
+		except ValueError:
+			return annotation.strip()
+	return json.dumps(annotation, ensure_ascii=False, indent=2)
+
 
 class MistralOCRToolDialog(ToolDialogBase):
 	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None):
@@ -118,14 +156,14 @@ class MistralOCRToolDialog(ToolDialogBase):
 			main,
 			# Translators: Label before the document-level annotation output format drop-down for Mistral OCR.
 			_("Document annotation for&mat:"),
-			lambda: wx.Choice(self.formPanel, choices=["", "text", "json", "json_schema"]),
+			lambda: wx.Choice(self.formPanel, choices=list(_ANNOTATION_FORMATS)),
 		)
 		self.bboxAnnotationChoice = add_labeled_factory(
 			self.formPanel,
 			main,
 			# Translators: Label before the bounding-box annotation output format drop-down for Mistral OCR.
 			_("BBo&x annotation format:"),
-			lambda: wx.Choice(self.formPanel, choices=["", "text", "json"]),
+			lambda: wx.Choice(self.formPanel, choices=list(_ANNOTATION_FORMATS)),
 		)
 		# Translators: Checkbox asking Mistral to embed base64 image data in the OCR JSON response.
 		self.includeImageB64Check = wx.CheckBox(self.formPanel, label=_("Include image base64 in response"))
@@ -140,11 +178,30 @@ class MistralOCRToolDialog(ToolDialogBase):
 			_("Document annotation &prompt:"),
 			lambda: wx.TextCtrl(self.formPanel, style=wx.TE_MULTILINE, size=(-1, 100)),
 		)
+		self.annotationSchemaText = add_labeled_factory(
+			self.formPanel,
+			main,
+			# Translators: Label before the multiline JSON schema used when an annotation format is json_schema (Mistral OCR).
+			_("Annotation JSON sc&hema (for json_schema):"),
+			lambda: wx.TextCtrl(self.formPanel, style=wx.TE_MULTILINE, size=(-1, 100)),
+		)
+		self.confidenceChoice = add_labeled_factory(
+			self.formPanel,
+			main,
+			# Translators: Label before the drop-down choosing per-page, per-block or per-word OCR confidence scores (empty = none).
+			_("Confidence scores:"),
+			lambda: wx.Choice(self.formPanel, choices=list(_CONFIDENCE_GRANULARITIES)),
+		)
+		self.confidenceChoice.SetSelection(0)
+		# Translators: Checkbox asking Mistral OCR to return paragraph-level blocks with bounding boxes (API default: on).
+		self.includeBlocksCheck = wx.CheckBox(self.formPanel, label=_("Include text &blocks"))
+		self.includeBlocksCheck.SetValue(True)
 		for choice in (self.tableFormatChoice, self.docAnnotationChoice, self.bboxAnnotationChoice):
 			choice.SetSelection(0)
 		main.Add(self.includeImageB64Check, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, UI_FORM_ROW_BORDER_PX)
 		main.Add(self.extractHeaderCheck, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, UI_FORM_ROW_BORDER_PX)
 		main.Add(self.extractFooterCheck, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, UI_FORM_ROW_BORDER_PX)
+		main.Add(self.includeBlocksCheck, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, UI_FORM_ROW_BORDER_PX)
 
 		buttons = wx.BoxSizer(wx.HORIZONTAL)
 		# Translators: Button that sends the configured document to the Mistral OCR API and writes result files.
@@ -190,6 +247,9 @@ class MistralOCRToolDialog(ToolDialogBase):
 			self.openTextResultBtn,
 			self.openJsonResultBtn,
 			self.pagesText,
+			self.annotationSchemaText,
+			self.confidenceChoice,
+			self.includeBlocksCheck,
 			self.imageLimitText,
 			self.imageMinSizeText,
 			self.tableFormatChoice,
@@ -210,15 +270,12 @@ class MistralOCRToolDialog(ToolDialogBase):
 		txt_path = ""
 		json_path = ""
 		try:
-			req = urllib.request.Request(
-				"https://api.mistral.ai/v1/ocr",
-				data=json.dumps(body).encode("utf-8"),
-				headers={"Content-Type": "application/json", "x-api-key": api_key.strip()},
-				method="POST",
-			)
-			with urllib.request.urlopen(req, timeout=180) as resp:
-				payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+			payload = mistral_api_request(api_key, "ocr", body)
 			text = extract_ocr_text(payload)
+			annotation = format_ocr_annotation(payload)
+			if annotation:
+				# Translators: Heading inserted before the document annotation in the Mistral OCR text result.
+				text = (text + "\n\n" if text else "") + _("Document annotation:") + "\n" + annotation
 			json_path = build_media_path("documents", ".json", prefix="mistral_ocr")
 			txt_path = build_media_path("documents", ".txt", prefix="mistral_ocr")
 			with open(json_path, "w", encoding="utf-8") as f:
@@ -279,6 +336,9 @@ class MistralOCRToolDialog(ToolDialogBase):
 					"extract_header": self.extractHeaderCheck.IsChecked(),
 					"extract_footer": self.extractFooterCheck.IsChecked(),
 					"document_annotation_prompt": self.annotationPromptText.GetValue().strip(),
+					"annotation_schema": self.annotationSchemaText.GetValue().strip(),
+					"confidence_scores_granularity": self.confidenceChoice.GetStringSelection().strip(),
+					"include_blocks": self.includeBlocksCheck.IsChecked(),
 				},
 			},
 		)
@@ -313,11 +373,13 @@ class MistralOCRToolDialog(ToolDialogBase):
 					self.tableFormatChoice.SetSelection(idx)
 			doc_fmt = options.get("document_annotation_format", "")
 			if isinstance(doc_fmt, str) and doc_fmt:
+				doc_fmt = _LEGACY_ANNOTATION_FORMATS.get(doc_fmt, doc_fmt)
 				idx = self.docAnnotationChoice.FindString(doc_fmt)
 				if idx != wx.NOT_FOUND:
 					self.docAnnotationChoice.SetSelection(idx)
 			bbox_fmt = options.get("bbox_annotation_format", "")
 			if isinstance(bbox_fmt, str) and bbox_fmt:
+				bbox_fmt = _LEGACY_ANNOTATION_FORMATS.get(bbox_fmt, bbox_fmt)
 				idx = self.bboxAnnotationChoice.FindString(bbox_fmt)
 				if idx != wx.NOT_FOUND:
 					self.bboxAnnotationChoice.SetSelection(idx)
@@ -326,6 +388,12 @@ class MistralOCRToolDialog(ToolDialogBase):
 			self.extractFooterCheck.SetValue(bool(options.get("extract_footer", False)))
 			if isinstance(options.get("document_annotation_prompt"), str):
 				self.annotationPromptText.SetValue(options.get("document_annotation_prompt"))
+			if isinstance(options.get("annotation_schema"), str):
+				self.annotationSchemaText.SetValue(options.get("annotation_schema"))
+			confidence = options.get("confidence_scores_granularity", "")
+			if confidence in _CONFIDENCE_GRANULARITIES:
+				self.confidenceChoice.SetSelection(_CONFIDENCE_GRANULARITIES.index(confidence))
+			self.includeBlocksCheck.SetValue(bool(options.get("include_blocks", True)))
 		text_path = fd.get("text_path", "")
 		json_path = fd.get("json_path", "")
 		if isinstance(text_path, str) and text_path:
@@ -397,9 +465,8 @@ class MistralOCRToolDialog(ToolDialogBase):
 		}
 		pages_raw = self.pagesText.GetValue().strip()
 		if pages_raw:
-			items = [p.strip() for p in pages_raw.split(",") if p.strip()]
-			if items:
-				body["pages"] = items
+			# The API takes 0-based pages as a list of ints or a string such as "0,2-4".
+			body["pages"] = pages_raw.replace(" ", "")
 		image_limit = safe_int(self.imageLimitText.GetValue(), default=None)
 		if image_limit is not None:
 			body["image_limit"] = image_limit
@@ -410,14 +477,28 @@ class MistralOCRToolDialog(ToolDialogBase):
 		if table_format:
 			body["table_format"] = table_format
 		doc_annotation = self.docAnnotationChoice.GetStringSelection().strip()
-		if doc_annotation:
-			body["document_annotation_format"] = doc_annotation
-		bbox_annotation = self.bboxAnnotationChoice.GetStringSelection().strip()
-		if bbox_annotation:
-			body["bbox_annotation_format"] = bbox_annotation
 		annotation_prompt = self.annotationPromptText.GetValue().strip()
+		if annotation_prompt and not doc_annotation:
+			# The prompt requires a document annotation format.
+			doc_annotation = "text"
+		schema_text = self.annotationSchemaText.GetValue().strip()
+		try:
+			if doc_annotation:
+				body["document_annotation_format"] = _annotation_format(doc_annotation, schema_text, "document_annotation")
+			bbox_annotation = self.bboxAnnotationChoice.GetStringSelection().strip()
+			if bbox_annotation:
+				body["bbox_annotation_format"] = _annotation_format(bbox_annotation, schema_text, "bbox_annotation")
+		except ValueError as err:
+			wx.MessageBox(str(err), "OpenAI", wx.OK | wx.ICON_ERROR)
+			self.annotationSchemaText.SetFocus()
+			return
 		if annotation_prompt:
 			body["document_annotation_prompt"] = annotation_prompt
+		confidence = self.confidenceChoice.GetStringSelection().strip()
+		if confidence:
+			body["confidence_scores_granularity"] = confidence
+		if not self.includeBlocksCheck.IsChecked():
+			body["include_blocks"] = False
 		if self.conf["chatFeedback"]["sndTaskInProgress"]:
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
 		# Translators: Status line on the modal progress window while Mistral OCR is processing the selected file.

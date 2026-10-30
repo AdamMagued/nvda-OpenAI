@@ -21,6 +21,7 @@ from ._client import (
 	OpenAIClient,
 	build_multipart_body,
 	configure_client_for_provider,
+	mistral_api_request,
 	mistral_transcription_request,
 	transcribe_audio_mistral,
 )
@@ -56,6 +57,7 @@ __all__ = [
 	"_resolve_error_message",
 	"build_multipart_body",
 	"configure_client_for_provider",
+	"mistral_api_request",
 	"mistral_transcription_request",
 	"transcribe_audio_mistral",
 	"truncate_error_for_user",
