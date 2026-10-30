@@ -20,7 +20,7 @@ from .consts import (
 	UI_SECTION_SPACING_PX,
 )
 from .model import clearModelCache
-from .providertools_helpers import add_labeled_factory
+from .providertools_helpers import add_labeled_factory, parse_modelfile
 from .thread_shutdown import stop_worker_thread
 from .tool_dialog_base import ToolDialogBase
 
@@ -200,7 +200,11 @@ class OllamaModelManagerToolDialog(ToolDialogBase):
 			if not modelfile:
 				# Translators: Validation error when create-from-Modelfile is chosen but the Modelfile text box is empty.
 				raise ValueError(_("Modelfile content is required for create action."))
-			return {"model": model_name, "modelfile": modelfile, "stream": False}
+			fields = parse_modelfile(modelfile)
+			if not fields.get("from"):
+				# Translators: Validation error when the Modelfile given to the Ollama create action has no FROM line.
+				raise ValueError(_("The Modelfile must contain a FROM line."))
+			return {"model": model_name, **fields, "stream": False}
 		if action in ("show",):
 			return {"model": model_name}
 		if action in ("pull", "push"):

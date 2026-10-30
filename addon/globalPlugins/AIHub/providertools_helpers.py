@@ -80,3 +80,67 @@ def add_labeled_factory(parent, sizer, label_text, control_factory, border=UI_FO
 	proportion = 1 if expand and isinstance(control, wx.TextCtrl) and control.IsMultiLine() else 0
 	sizer.Add(control, proportion, flags, border)
 	return control
+
+
+_MODELFILE_TEXT_FIELDS = {"FROM": "from", "SYSTEM": "system", "TEMPLATE": "template", "LICENSE": "license"}
+
+
+def _modelfile_number(value: str):
+	for cast in (int, float):
+		try:
+			return cast(value)
+		except ValueError:
+			pass
+	return value
+
+
+def parse_modelfile(text: str) -> dict:
+	"""Convert Modelfile text into the structured ``/api/create`` body fields.
+
+	Ollama's create endpoint takes ``from``, ``system``, ``template``,
+	``license``, ``parameters`` and ``messages`` instead of raw Modelfile text:
+	https://docs.ollama.com/api/create
+	Values may be quoted with triple double quotes to span several lines.
+	"""
+	fields: dict = {}
+	parameters: dict = {}
+	messages: list = []
+	lines = (text or "").replace("\r\n", "\n").split("\n")
+	i = 0
+	while i < len(lines):
+		line = lines[i].strip()
+		i += 1
+		if not line or line.startswith("#"):
+			continue
+		keyword, _, rest = line.partition(" ")
+		keyword = keyword.upper()
+		rest = rest.strip()
+		if rest.startswith('"""'):
+			body = rest[3:]
+			chunks = []
+			while '"""' not in body and i < len(lines):
+				chunks.append(body)
+				body = lines[i]
+				i += 1
+			chunks.append(body.split('"""', 1)[0])
+			rest = "\n".join(chunks).strip("\n")
+		if keyword in _MODELFILE_TEXT_FIELDS:
+			fields[_MODELFILE_TEXT_FIELDS[keyword]] = rest
+		elif keyword == "PARAMETER":
+			name, _, value = rest.partition(" ")
+			value = _modelfile_number(value.strip().strip('"'))
+			if name in parameters:
+				existing = parameters[name]
+				parameters[name] = (existing if isinstance(existing, list) else [existing]) + [value]
+			elif name == "stop":
+				parameters[name] = [value]
+			else:
+				parameters[name] = value
+		elif keyword == "MESSAGE":
+			role, _, content = rest.partition(" ")
+			messages.append({"role": role.lower(), "content": content.strip()})
+	if parameters:
+		fields["parameters"] = parameters
+	if messages:
+		fields["messages"] = messages
+	return fields
