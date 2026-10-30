@@ -1131,7 +1131,6 @@ class CompletionThread(threading.Thread):
 		)
 		if citations_footer:
 			block.responseText += citations_footer
-			wnd.updateResponse(block, citations_footer)
 		block.responseTerminated = True
 
 	def _responseWithoutStream(self, response, block, debug=False):
