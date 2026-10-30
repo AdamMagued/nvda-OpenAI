@@ -1,14 +1,8 @@
-import base64
 import ctypes
-import datetime
-import json
-import mimetypes
 import os
 import re
 import sys
-import tempfile
 import threading
-import time
 import winsound
 import gui
 import wx
@@ -16,42 +10,36 @@ import wx
 import addonHandler
 import api
 import braille
-import config
 import queueHandler
 import speech
-import ui
 from logHandler import log
 
 from . import apikeymanager
-from . import conversations
+from .conversation_tabs import ConversationTabsMixin
+from .conversation_persistence import ConversationPersistenceMixin
+from .conversation_messages import ConversationMessagesMixin
+from .conversation_dictation import ConversationDictationMixin
 from .audiohandlers import AudioHandlersMixin
 from .chatcompletion import CompletionThread
 from .historyhandlers import HistoryHandlersMixin
 from .filehandlers import FileHandlersMixin
 from .modelhandlers_core import ModelHandlersMixin
 from .consts import (
-	ADDON_DIR, ADDON_LIBS_DIR, DATA_DIR, LIBS_BASE, TEMP_DIR, cleanup_temp_dir, stop_progress_sound,
-	ensure_temp_dir,
-	ContentType,
-	Provider,
-	Role,
-	TranscriptionProvider,
-	TOP_P_MIN, TOP_P_MAX,
+	LIBS_BASE,
+	cleanup_temp_dir,
+	stop_progress_sound,
+	TOP_P_MIN,
+	TOP_P_MAX,
 	DEFAULT_SYSTEM_PROMPT,
-	AUDIO_EXT_TO_FORMAT,
-	SND_CHAT_RESPONSE_RECEIVED, SND_PROGRESS,
-	REASONING_EFFORT_OPTIONS, DEFAULT_REASONING_EFFORT,
+	SND_CHAT_RESPONSE_RECEIVED,
 	UI_DIALOG_BORDER_PX,
 	UI_SECTION_SPACING_PX,
 )
 from .history import HistoryBlock, TextSegment
 from .detached_branch import assistant_label_for_block
-from .imagehelper import encode_image, get_image_dimensions, resize_image
-from .image_file import AttachmentFile, AttachmentFileTypes, get_display_size, URL_PATTERN
-from .recordthread import RecordThread, WhisperTranscription, AudioInputResult
+from .recordthread import WhisperTranscription, AudioInputResult
 from .thread_shutdown import stop_worker_thread
-from .resultevent import ResultEvent, EVT_RESULT_ID
-from .transcription import get_transcription_provider
+from .resultevent import EVT_RESULT_ID
 from .toolsmenu import show_tools_menu
 from .attachment_ui import AttachmentListUIMixin
 from .conversation_chrome import GenerationChromePanel
@@ -61,18 +49,10 @@ sys.path.insert(0, LIBS_BASE)
 from markdown_it import MarkdownIt
 sys.path.remove(LIBS_BASE)
 
-from .apiclient import (
-	APIConnectionError,
-	APIStatusError,
-	Choice,
-	ChatCompletion,
-	Transcription,
-	configure_client_for_provider,
-)
+from .apiclient import APIConnectionError, APIStatusError, Choice, Transcription
 
 addonHandler.initTranslation()
 
-DATA_JSON_FP = os.path.join(DATA_DIR, "data.json")
 
 # WinUser.h GA_ROOT — root top-level for GetAncestor(GetForegroundWindow(), …).
 _GA_ROOT = 2
@@ -115,7 +95,18 @@ class ConversationNotebook(wx.Notebook):
 	"""Notebook hosting parallel conversation sessions."""
 
 
-class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlersMixin, AudioHandlersMixin, HistoryHandlersMixin, wx.Dialog):
+class ConversationDialog(
+	ConversationTabsMixin,
+	ConversationPersistenceMixin,
+	ConversationMessagesMixin,
+	ConversationDictationMixin,
+	ModelHandlersMixin,
+	AttachmentListUIMixin,
+	FileHandlersMixin,
+	AudioHandlersMixin,
+	HistoryHandlersMixin,
+	wx.Dialog,
+):
 	"""NVDA AI-Hub conversation window (parallel sessions in a notebook)."""
 	_THINK_HISTORY_OPEN = "<think>\n"
 	_THINK_HISTORY_CLOSE = "\n</think>\n"
@@ -202,138 +193,6 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			self._syncSharedChromeForActiveTab()
 		prompt.SetFocus()
 		prompt.SetInsertionPointEnd()
-
-	def _collect_blocks_from_page(self, page):
-		blocks = []
-		b = page.firstBlock
-		while b:
-			blocks.append(b)
-			b = b.next
-		return blocks
-
-	def _model_id_from_block_chain(self, page):
-		"""First non-empty model id on the block chain (tail toward head, then forward)."""
-		b = page.lastBlock
-		while b:
-			mid = (getattr(b, "model", None) or "").strip()
-			if mid:
-				return mid
-			b = getattr(b, "previous", None)
-		b = page.firstBlock
-		while b:
-			mid = (getattr(b, "model", None) or "").strip()
-			if mid:
-				return mid
-			b = getattr(b, "next", None)
-		return ""
-
-	def _conversation_record_for_page(self, page):
-		cid = getattr(page, "_conversationId", None)
-		if not cid:
-			return None
-		try:
-			return conversations.load_conversation(cid)
-		except Exception:
-			log.debug("Ignored error", exc_info=True)
-			return None
-
-	def _chrome_hints_for_page(self, page):
-		"""Resolve model id and account key for shared chrome: blocks, tab hints, then one disk read."""
-		model_id = self._model_id_from_block_chain(page)
-		if not model_id:
-			model_id = (getattr(page, "conversationModelHint", None) or "").strip()
-		account_key = (getattr(page, "conversationAccountKey", None) or "").strip()
-		rec = None
-		if not model_id or not account_key:
-			rec = self._conversation_record_for_page(page)
-		if rec:
-			if not model_id:
-				model_id = (rec.get("model") or "").strip()
-			if not account_key:
-				account_key = (rec.get("accountKey") or "").strip()
-		return model_id, account_key
-
-	def _model_id_for_page_persist(self, page):
-		return self._model_id_from_block_chain(page) or (getattr(page, "conversationModelHint", None) or "").strip()
-
-	def _default_title_for_new_conversation(self, blocks, draft_stripped):
-		if blocks:
-			first = blocks[0]
-			prompt = getattr(first, "prompt", "") or ""
-			tlist = getattr(first, "audioTranscriptList", None)
-			if not prompt and tlist and any(t for t in tlist):
-				prompt = "\n".join(t for t in tlist if t).strip()
-		else:
-			prompt = draft_stripped
-		return conversations.get_default_title(prompt)
-
-	def _page_has_restorable_content(self, page, *, blocks=None, draft_prompt=None):
-		"""A page should be restored only when it has message history or a non-empty draft."""
-		if blocks is None:
-			blocks = self._collect_blocks_from_page(page)
-		if draft_prompt is None:
-			draft_prompt = page.promptTextCtrl.GetValue()
-		return bool(blocks) or bool((draft_prompt or "").strip())
-
-	def _storage_kwargs_for_page(self, page, *, autosave_force=False, for_autosave=False):
-		"""
-		Build arguments for conversations.save_conversation, or None if nothing should be written.
-		Persist allows draft-only tabs; periodic autosave skips draft-only unless autosave_force (manual save).
-		A tab is persisted only when it has message history or a non-empty draft prompt.
-		"""
-		if getattr(page, "ephemeral", False):
-			return None
-		blocks = self._collect_blocks_from_page(page)
-		draft_prompt = page.promptTextCtrl.GetValue()
-		draft_stripped = draft_prompt.strip()
-		if not self._page_has_restorable_content(page, blocks=blocks, draft_prompt=draft_prompt):
-			return None
-		if not blocks and for_autosave and not autosave_force:
-			return None
-		if self.conf.get("saveSystem"):
-			system = (getattr(page, "conversationSystemText", None) or "").strip()
-		else:
-			system = ""
-		model_id = self._model_id_for_page_persist(page)
-		account_key = (getattr(page, "conversationAccountKey", None) or "").strip()
-		ui_state = getattr(page, "conversationUiState", None)
-		if not isinstance(ui_state, dict):
-			ui_state = {}
-		name = None
-		if not page._conversationId:
-			name = self._default_title_for_new_conversation(blocks, draft_stripped)
-		return {
-			"blocks": blocks,
-			"system": system,
-			"model": model_id,
-			"name": name,
-			"conv_id": page._conversationId,
-			"draftPrompt": draft_prompt,
-			"draftPathList": page.filesList,
-			"draftAudioPathList": page.audioPathList,
-			"account_key": account_key,
-			"ui_state": ui_state,
-			"usage_ledger": list(getattr(page, "usageLedger", None) or []),
-			"detached_branch": getattr(page, "detachedBranch", None),
-			"prompt_cache_key": getattr(page, "_promptCacheKey", None) or "",
-		}
-
-	def _saveConversationFromKw(self, kw):
-		return conversations.save_conversation(
-			kw["blocks"],
-			system=kw["system"],
-			model=kw["model"],
-			name=kw["name"],
-			conv_id=kw["conv_id"],
-			draftPrompt=kw["draftPrompt"],
-			draftPathList=kw["draftPathList"],
-			draftAudioPathList=kw["draftAudioPathList"],
-			account_key=kw["account_key"],
-			ui_state=kw["ui_state"],
-			usage_ledger=kw.get("usage_ledger"),
-			detached_branch=kw.get("detached_branch"),
-			prompt_cache_key=kw.get("prompt_cache_key") or "",
-		)
 
 	def _captureConversationChromeToPage(self, page):
 		"""Snapshot shared chrome + system prompt into a tab (call before saving or switching away)."""
@@ -722,334 +581,6 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			wp = self.get_active_page()
 			self._worker_page = wp
 		wp.stopRequest = value
-
-	def _addConversationTab(self, title=None):
-		idx = self.notebook.GetPageCount()
-		# Translators: Default tab caption for a new empty conversation.
-		tab_title = title if title is not None else _("Untitled conversation")
-		prev_snapshot = ""
-		if idx > 0:
-			prev_sel = self.notebook.GetSelection()
-			if prev_sel >= 0:
-				prev_snapshot = self.notebook.GetPage(prev_sel).systemTextCtrl.GetValue()
-		page = ConversationSessionPanel(self.notebook, self)
-		self.notebook.AddPage(page, tab_title)
-		self.addShortcutsForPage(page)
-		self.notebook.SetSelection(idx)
-		page.conversationSystemText = prev_snapshot
-		page.systemTextCtrl.SetValue(prev_snapshot)
-		self._syncWindowTitleFromActiveTab()
-		return page
-
-	def _notebook_page_index(self, page):
-		for ti in range(self.notebook.GetPageCount()):
-			if self.notebook.GetPage(ti) is page:
-				return ti
-		return -1
-
-	def _onCloseConversationTab(self, evt=None):
-		"""Ctrl+W: close the current tab; reset the last tab instead of closing the hub."""
-		if not getattr(self, "notebook", None):
-			return
-		if self.notebook.GetPageCount() > 1:
-			self._closeTabAt(self.notebook.GetSelection())
-			return
-		self._resetTabPage(self.get_active_page())
-		wx.CallAfter(self.promptTextCtrl.SetFocus)
-
-	def _clearMessagesSegmentsOnPage(self, page):
-		page.messagesTextCtrl.Clear()
-		if hasattr(page.messagesTextCtrl, "firstSegment"):
-			page.messagesTextCtrl.firstSegment = None
-			page.messagesTextCtrl.lastSegment = None
-		page.messagesTextCtrl._aihub_saved_selection = None
-
-	def _captureEphemeralToPage(self, page):
-		if page is None or not hasattr(self, "ephemeralCheckBox"):
-			return
-		page.ephemeral = bool(self.ephemeralCheckBox.IsChecked())
-
-	def _syncEphemeralChromeFromPage(self, page):
-		if page is None or not hasattr(self, "ephemeralCheckBox"):
-			return
-		ephemeral = bool(getattr(page, "ephemeral", False))
-		self.ephemeralCheckBox.SetValue(ephemeral)
-		self._syncSaveControlsForEphemeral(ephemeral)
-
-	def _is_active_tab_ephemeral(self):
-		return bool(getattr(self.get_active_page(), "ephemeral", False))
-
-	def _syncSaveControlsForEphemeral(self, ephemeral=None):
-		if ephemeral is None:
-			ephemeral = self._is_active_tab_ephemeral()
-		if ephemeral:
-			self.saveConversationBtn.Disable()
-			self.saveConversationBtn.Show(False)
-			self.renameConversationBtn.Disable()
-		else:
-			self.saveConversationBtn.Show(True)
-			self.saveConversationBtn.Enable()
-			self.renameConversationBtn.Enable()
-		try:
-			self.Layout()
-		except Exception:
-			log.debug("Ignored error", exc_info=True)
-
-	def _onManualSaveRequested(self, evt=None):
-		"""Ctrl+S / menu save — no-op while the active tab is ephemeral."""
-		if self._is_active_tab_ephemeral():
-			return
-		self._saveConversation(evt)
-
-	def _purgeSavedConversationForPage(self, page):
-		"""Remove on-disk history for a tab entering ephemeral mode."""
-		cid = getattr(page, "_conversationId", None)
-		if not cid:
-			return
-		try:
-			conversations.delete_conversation(cid)
-		except Exception as err:
-			log.error(f"purge ephemeral conversation {cid}: {err}", exc_info=True)
-		try:
-			conversations.prune_hub_session_references([cid])
-		except Exception as err:
-			log.error(f"prune hub session for ephemeral {cid}: {err}", exc_info=True)
-		page._conversationId = None
-
-	def _onEphemeralToggle(self, evt):
-		if getattr(self, "_sync_suppress_tab_capture", False):
-			evt.Skip()
-			return
-		page = self.get_active_page()
-		ephemeral = bool(self.ephemeralCheckBox.IsChecked())
-		if ephemeral == bool(getattr(page, "ephemeral", False)):
-			evt.Skip()
-			return
-		page.ephemeral = ephemeral
-		if ephemeral:
-			self._purgeSavedConversationForPage(page)
-			# Translators: Status after enabling ephemeral (no-save) mode on the current tab.
-			self.message(_("Ephemeral mode: this conversation will not be saved."))
-		else:
-			# Translators: Status after disabling ephemeral mode; saving is available again.
-			self.message(_("Saving is enabled for this conversation."))
-		self._syncSaveControlsForEphemeral(ephemeral)
-		evt.Skip()
-
-	def _persistPageConversation(self, page):
-		"""Save one tab to conversation storage for hub session close; returns id or None on failure."""
-		if getattr(page, "ephemeral", False):
-			return None
-		if self.get_active_page() is page:
-			self._captureEphemeralToPage(page)
-			self._captureConversationChromeToPage(page)
-		kw = self._storage_kwargs_for_page(page, for_autosave=False)
-		if kw is None:
-			return None
-		try:
-			new_id = self._saveConversationFromKw(kw)
-			page._conversationId = new_id
-			tab_name = kw.get("name")
-			if not tab_name:
-				entry = next((e for e in conversations.list_conversations() if e.get("id") == new_id), None)
-				# Translators: Fallback saved-conversation title when no explicit name is available.
-				tab_name = entry.get("name", _("Untitled conversation")) if entry else _("Untitled conversation")
-			idx = self._notebook_page_index(page)
-			if idx >= 0:
-				self.notebook.SetPageText(idx, tab_name)
-				if self.notebook.GetSelection() == idx:
-					self._syncWindowTitleFromActiveTab()
-			return new_id
-		except Exception as err:
-			log.error(f"persist tab conversation: {err}", exc_info=True)
-			return None
-
-	def _prepareLazySessionTab(self, page, cid, tab_title):
-		"""Placeholder UI only; full load deferred until user switches to this tab."""
-		page.session_lazy_load = True
-		page.firstBlock = None
-		page.lastBlock = None
-		page.previousPrompt = None
-		page.usageLedger = []
-		page.detachedBranch = None
-		page._regenerateBlock = None
-		page._conversationId = cid
-		page._promptCacheKey = None
-		page.conversationModelHint = ""
-		page.conversationAccountKey = ""
-		page.conversationSystemText = ""
-		page.conversationUiState = {}
-		page.ephemeral = False
-		self._clearMessagesSegmentsOnPage(page)
-		page.filesList = []
-		page.audioPathList = []
-		page.promptTextCtrl.Clear()
-		idx = self._notebook_page_index(page)
-		if idx >= 0:
-			# Translators: Fallback tab label for a lazily restored conversation tab.
-			self.notebook.SetPageText(idx, tab_title or _("Conversation"))
-
-	def _hydrateLazySessionTabIfNeeded(self, page):
-		if not getattr(page, "session_lazy_load", False):
-			return
-		cid = getattr(page, "_conversationId", None)
-		if not cid:
-			page.session_lazy_load = False
-			return
-		data = conversations.load_conversation(cid)
-		if data:
-			self._loadConversation(data)
-			page.session_lazy_load = False
-		else:
-			self._resetTabPage(page)
-
-	def _resetTabPage(self, page, *, select_tab=True, sync_attachment_widgets=True):
-		"""Clear one tab to an empty state (no saved conversation id)."""
-		page.session_lazy_load = False
-		page.firstBlock = None
-		page.lastBlock = None
-		page.previousPrompt = None
-		page.usageLedger = []
-		page.detachedBranch = None
-		page._regenerateBlock = None
-		page._conversationId = None
-		page._promptCacheKey = None
-		page.conversationModelHint = ""
-		page.conversationAccountKey = ""
-		page.conversationSystemText = ""
-		page.conversationUiState = {}
-		page.ephemeral = False
-		self._clearMessagesSegmentsOnPage(page)
-		page.filesList = []
-		page.audioPathList = []
-		page.promptTextCtrl.Clear()
-		idx = self._notebook_page_index(page)
-		if idx >= 0:
-			# Translators: Default tab caption after clearing a conversation tab.
-			self.notebook.SetPageText(idx, _("Untitled conversation"))
-			if select_tab:
-				self.notebook.SetSelection(idx)
-		if sync_attachment_widgets:
-			self.updateFilesList(focusPrompt=False)
-			self.updateAudioList(focusPrompt=False)
-		self._syncWindowTitleFromActiveTab()
-		if self.get_active_page() is page:
-			self._syncEphemeralChromeFromPage(page)
-
-	def _saveHubSession(self):
-		"""Persist every tab and write hub_session.json for restore on next open."""
-		if not self.conf.get("autoSaveConversation", True):
-			conversations.remove_hub_session_file()
-			return
-		active = self.get_active_page()
-		self._captureEphemeralToPage(active)
-		self._captureConversationChromeToPage(active)
-		tab_entries = []
-		for i in range(self.notebook.GetPageCount()):
-			page = self.notebook.GetPage(i)
-			cid = self._persistPageConversation(page)
-			if cid:
-				tab_entries.append({"id": cid})
-		try:
-			if tab_entries:
-				conversations.write_hub_session_snapshot(tabs=tab_entries)
-			else:
-				conversations.write_hub_session_snapshot(tabs=[])
-		except Exception as err:
-			log.error(f"save hub session: {err}", exc_info=True)
-
-	def _restoreHubSessionIfNeeded(self, *, append_fresh_tab=False):
-		if not self.conf.get("autoSaveConversation", True):
-			return
-		if not os.path.isfile(conversations.HUB_SESSION_JSON):
-			return
-		try:
-			with open(conversations.HUB_SESSION_JSON, "r", encoding="utf-8") as f:
-				snap = json.load(f)
-		except Exception as err:
-			log.warning(f"restore hub session read: {err}")
-			return
-		tabs = snap.get("tabs") or []
-		if not tabs:
-			return
-		while self.notebook.GetPageCount() < len(tabs):
-			# Translators: Temporary tab caption while restoring a previous session.
-			self._addConversationTab(_("Conversation"))
-		# Which tab gets full load last (others lazy/reset). No longer persisted (v2).
-		final_sel = 0
-		# Translators: Fallback conversation name during hub-session restoration.
-		name_by_id = {
-			# Translators: Fallback tab title when restoring a hub session if the saved conversation id has no stored display name.
-			e.get("id"): e.get("name") or _("Conversation")
-			for e in conversations.list_conversations()
-			if e.get("id")
-		}
-
-		def _entry_cid(entry):
-			return (entry.get("id") if isinstance(entry, dict) else entry) or ""
-
-		for i in range(len(tabs)):
-			if i == final_sel:
-				continue
-			page = self.notebook.GetPage(i)
-			cid = _entry_cid(tabs[i])
-			if cid and conversations.conversation_file_exists(cid):
-				# Translators: Fallback tab label when a restored conversation name is missing.
-				self._prepareLazySessionTab(page, cid, name_by_id.get(cid, _("Conversation")))
-			else:
-				self._resetTabPage(page, select_tab=False, sync_attachment_widgets=False)
-
-		self.notebook.SetSelection(final_sel)
-		active_page = self.notebook.GetPage(final_sel)
-		cid = _entry_cid(tabs[final_sel])
-		if cid and conversations.conversation_file_exists(cid):
-			data = conversations.load_conversation(cid)
-			if data:
-				self._loadConversation(data)
-			else:
-				self._resetTabPage(active_page)
-		else:
-			self._resetTabPage(active_page)
-		if append_fresh_tab:
-			self._addConversationTab()
-		wx.CallAfter(self.promptTextCtrl.SetFocus)
-
-	def _openConversationFromHistory(self, data):
-		"""Open a saved conversation in a new tab (conversation list dialog)."""
-		# Translators: Fallback name when opening an untitled saved conversation from history.
-		name = data.get("name", _("Conversation")) if isinstance(data, dict) else _("Conversation")
-		self._addConversationTab(name)
-		self._loadConversation(data, focus_message_history=True)
-
-	def _closeTabAt(self, idx):
-		n = self.notebook.GetPageCount()
-		if n <= 1:
-			return False
-		if idx < 0 or idx >= n:
-			return False
-		page = self.notebook.GetPage(idx)
-		if getattr(page, "worker", None):
-			sr = page.stopRequest
-			if sr:
-				sr.set()
-			stop_worker_thread(page.worker)
-			page.worker = None
-		if getattr(self, "_worker_page", None) is page:
-			self._worker_page = None
-		new_sel = idx - 1 if idx > 0 else 0
-		self.notebook.DeletePage(idx)
-		n = self.notebook.GetPageCount()
-		if n:
-			self.notebook.SetSelection(min(new_sel, n - 1))
-		self._cached_messages_hwnd = None
-		try:
-			self.Layout()
-		except Exception:
-			log.debug("Ignored error", exc_info=True)
-		self.updateFilesList(False)
-		self.updateAudioList(False)
-		self._syncWindowTitleFromActiveTab()
-		return True
 
 	def _onAdvancedSamplingToggle(self, evt):
 		self._update_advanced_controls_visibility()
@@ -1504,30 +1035,6 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		menu.Append(wx.ID_SELECTALL)
 		self.Bind(wx.EVT_MENU, self.onDelete, id=wx.ID_DELETE)
 
-	def loadData(self):
-		if not os.path.exists(DATA_JSON_FP):
-			return {}
-		try:
-			with open(DATA_JSON_FP, "r", encoding="utf-8") as f:
-				data = json.load(f)
-			return data if isinstance(data, dict) else {}
-		except Exception as err:
-			log.error(f"loadData: {err}", exc_info=True)
-			return {}
-
-	def saveData(self, force=False):
-		if not isinstance(self.data, dict):
-			return
-		if not force and self.data == self._orig_data:
-			return
-		tmp_path = DATA_JSON_FP + ".tmp"
-		try:
-			with open(tmp_path, "w", encoding="utf-8") as f:
-				json.dump(self.data, f, indent=2, ensure_ascii=False)
-			os.replace(tmp_path, DATA_JSON_FP)
-		except Exception as err:
-			log.error(f"saveData: {err}", exc_info=True)
-
 	def _appendBlockToMessages(self, block):
 		"""Render a completed HistoryBlock into the messages text control.
 		Assign segment refs to block so j/k navigation and context menu work."""
@@ -1659,209 +1166,6 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				log.debug("Ignored error", exc_info=True)
 
 		wx.CallAfter(_focus)
-
-	def _loadConversation(self, data, *, focus_message_history=False):
-		"""Load conversation data (blocks, system) from saved conversation."""
-		blocks = data.get("blocks", [])
-		if not isinstance(blocks, list):
-			blocks = []
-		# Translators: Fallback title for loaded conversations missing a name.
-		conv_name = data.get("name", _("Untitled conversation"))
-		idx_tab = self.notebook.GetSelection()
-		if idx_tab >= 0:
-			self.notebook.SetPageText(idx_tab, conv_name)
-		active_pg = self.get_active_page()
-		active_pg.conversationModelHint = (data.get("model") or "").strip()
-		active_pg.conversationAccountKey = (data.get("accountKey") or "").strip()
-		raw_ui = data.get("uiState")
-		active_pg.conversationUiState = raw_ui if isinstance(raw_ui, dict) else {}
-		active_pg.ephemeral = False
-		active_pg.conversationSystemText = data.get("system", "") if isinstance(data.get("system"), str) else ""
-		from .usage_ledger import deserialize_ledger, migrate_ledger_from_blocks
-
-		raw_ledger = data.get("usageLedger")
-		if isinstance(raw_ledger, list) and raw_ledger:
-			active_pg.usageLedger = deserialize_ledger(raw_ledger)
-		else:
-			active_pg.usageLedger = migrate_ledger_from_blocks(blocks)
-		raw_detached = data.get("detachedBranch")
-		active_pg.detachedBranch = raw_detached if isinstance(raw_detached, dict) else None
-		self._clearMessagesSegments()
-		self.firstBlock = None
-		self.lastBlock = None
-		system = data.get("system", "")
-		if system and self.conf["saveSystem"]:
-			self.systemTextCtrl.ChangeValue(system)
-			self._lastSystem = system
-		draft_prompt = data.get("draftPrompt", "")
-		if isinstance(draft_prompt, str) and draft_prompt:
-			self.promptTextCtrl.SetValue(draft_prompt)
-			self.promptTextCtrl.SetInsertionPointEnd()
-		draft_path_list = data.get("draftPathList", [])
-		self.filesList = []
-		if isinstance(draft_path_list, list):
-			for item in draft_path_list:
-				if isinstance(item, dict):
-					path = item.get("path", "")
-					name = item.get("name", "")
-					if path:
-						try:
-							att = AttachmentFile(path, name=name or None)
-							conversations._apply_file_ids(att, item)
-							self.filesList.append(att)
-						except Exception as err:
-							log.warning(f"load draft image skipped {path}: {err}")
-				elif isinstance(item, str) and item:
-					try:
-						self.filesList.append(AttachmentFile(item))
-					except Exception as err:
-						log.warning(f"load draft image skipped {item}: {err}")
-		draft_audio_list = data.get("draftAudioPathList", [])
-		self.audioPathList = []
-		if isinstance(draft_audio_list, list):
-			for item in draft_audio_list:
-				if isinstance(item, str) and item:
-					self.audioPathList.append(item)
-		self.updateFilesList(focusPrompt=False)
-		self.updateAudioList(focusPrompt=False)
-		conv_id = data.get("id")
-		if conv_id:
-			self._conversationId = conv_id
-		cache_key = data.get("promptCacheKey") or conv_id
-		if isinstance(cache_key, str) and cache_key.strip():
-			active_pg._promptCacheKey = cache_key.strip()
-		else:
-			active_pg._promptCacheKey = None
-		if not blocks:
-			self._syncWindowTitleFromActiveTab()
-			if focus_message_history:
-				self._scheduleFocusMessageHistory()
-			return
-		prev = None
-		for b in blocks:
-			b.lastLen = len(b.responseText or "")
-			b.lastReasoningLen = len(b.reasoningText or "")
-			b.displayHeader = False
-			if prev is not None:
-				prev.next = b
-				b.previous = prev
-			else:
-				self.firstBlock = b
-			prev = b
-		self.lastBlock = prev
-		if active_pg.detachedBranch:
-			from .detached_branch import clear_detached_branch, find_block_by_uid
-
-			anchor = find_block_by_uid(self.firstBlock, active_pg.detachedBranch.get("anchorBlockId"))
-			if anchor is None:
-				clear_detached_branch(active_pg)
-		for b in blocks:
-			self._appendBlockToMessages(b)
-		if self.firstBlock and self.firstBlock.segmentPrompt is not None:
-			self.messagesTextCtrl.SetInsertionPoint(self.firstBlock.segmentPrompt.start)
-		self._syncWindowTitleFromActiveTab()
-		if focus_message_history:
-			self._scheduleFocusMessageHistory()
-		if self.get_active_page() is active_pg:
-			self._syncEphemeralChromeFromPage(active_pg)
-
-	def _getBlocksForSave(self):
-		"""Collect all blocks from firstBlock to lastBlock for saving."""
-		return self._collect_blocks_from_page(self.get_active_page())
-
-	def _autoSaveConversation(self, force=False):
-		"""Save conversation state. Auto-save obeys setting unless forced (manual save)."""
-		pg = self.get_active_page()
-		if getattr(pg, "ephemeral", False):
-			return False
-		if not force and not self.conf.get("autoSaveConversation", True):
-			return False
-		self._captureConversationChromeToPage(pg)
-		kw = self._storage_kwargs_for_page(pg, for_autosave=True, autosave_force=force)
-		if kw is None:
-			return False
-		try:
-			conv_id = self._saveConversationFromKw(kw)
-			self._conversationId = conv_id
-			new_title = kw.get("name")
-			if new_title:
-				idx = self.notebook.GetSelection()
-				if idx >= 0:
-					self.notebook.SetPageText(idx, new_title)
-				self._syncWindowTitleFromActiveTab()
-			return True
-		except Exception as err:
-			log.error(f"auto-save conversation: {err}", exc_info=True)
-			return False
-
-	def _saveConversation(self, evt=None):
-		"""Save current conversation to storage (manual, from menu)."""
-		if self._is_active_tab_ephemeral():
-			return
-		blocks = self._getBlocksForSave()
-		draft_prompt = self.promptTextCtrl.GetValue().strip()
-		if not blocks and not draft_prompt:
-			# Translators: Message when manual save is requested for an empty conversation.
-			ui.message(_("No messages or prompt to save."))
-			return
-		if self._autoSaveConversation(force=True):
-			# Translators: Confirmation message after successful manual save.
-			ui.message(_("Conversation saved."))
-		else:
-			gui.messageBox(
-				# Translators: Error text when manual conversation save fails.
-				_("Unable to save conversation. Check the NVDA log for details."),
-				# Translators: Title for manual save error dialog.
-				_("Save conversation"),
-				wx.OK | wx.ICON_ERROR
-			)
-
-	def _renameConversation(self, evt=None):
-		"""Rename current conversation."""
-		if getattr(self.get_active_page(), "ephemeral", False):
-			# Translators: Message when rename is blocked because ephemeral mode is on.
-			ui.message(_("Ephemeral conversations cannot be renamed. Uncheck Ephemeral to save first."))
-			return
-		if not self._conversationId:
-			# Translators: Message shown when trying to rename before first save.
-			ui.message(_("Save the conversation first before renaming."))
-			return
-		entry = next((e for e in conversations.list_conversations() if e.get("id") == self._conversationId), None)
-		# Translators: Default name suggested in rename dialog for untitled conversations.
-		current_name = entry.get("name", _("Untitled conversation")) if entry else ""
-		dlg = wx.TextEntryDialog(
-			self,
-			# Translators: Prompt text in rename conversation dialog.
-			_("Enter new name for this conversation:"),
-			# Translators: Title of rename conversation dialog.
-			_("Rename conversation"),
-			value=current_name
-		)
-		if dlg.ShowModal() != wx.ID_OK:
-			dlg.Destroy()
-			return
-		new_name = dlg.GetValue().strip()
-		dlg.Destroy()
-		if not new_name:
-			return
-		if conversations.rename_conversation(self._conversationId, new_name):
-			idx = self.notebook.GetSelection()
-			if idx >= 0:
-				self.notebook.SetPageText(idx, new_name)
-			self._syncWindowTitleFromActiveTab()
-
-	def _onConversationList(self, evt=None):
-		"""Open the conversation history dialog."""
-		from .conversations_manager_dialog import show_conversations_manager
-		if self._plugin:
-			wx.CallAfter(show_conversations_manager, self._plugin)
-
-	def _newConversation(self, evt=None):
-		"""Open a new conversation tab."""
-		self._addConversationTab()
-		wx.CallAfter(self.promptTextCtrl.SetFocus)
-		# Translators: Spoken status message after creating a new conversation tab.
-		ui.message(_("New conversation"))
 
 	def onSubmit(self, evt):
 		try:
@@ -2373,133 +1677,6 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		accelTable = wx.AcceleratorTable(accelEntries)
 		self.SetAcceleratorTable(accelTable)
 
-	def getFilesContent(
-		self,
-		filesList: list = None,
-		prompt: str = None
-	) -> list:
-		"""Build OpenAI-style content parts (image_url / input_file) for the given attachments."""
-		conf = self.conf
-		if not filesList:
-			filesList = self.filesList
-		parts = []
-		if prompt:
-			parts.append({
-				"type": ContentType.TEXT,
-				"text": prompt
-			})
-		model = self.getCurrentModel() if hasattr(self, "getCurrentModel") else None
-		provider = getattr(model, "provider", "") if model else ""
-		for attachment in filesList:
-			path = attachment.path
-			if attachment.type == AttachmentFileTypes.IMAGE_URL:
-				parts.append({"type": ContentType.IMAGE_URL, "image_url": {"url": path}})
-			elif attachment.type == AttachmentFileTypes.DOCUMENT_URL:
-				parts.append({"type": ContentType.INPUT_FILE, "file_url": path, "filename": attachment.name})
-			elif attachment.type == AttachmentFileTypes.IMAGE_LOCAL:
-				if conf["images"]["resize"]:
-					ensure_temp_dir()
-					fd, path_resized_image = tempfile.mkstemp(suffix=".jpg", dir=TEMP_DIR)
-					os.close(fd)
-					if resize_image(
-						path,
-						max_width=conf["images"]["maxWidth"],
-						max_height=conf["images"]["maxHeight"],
-						quality=conf["images"]["quality"],
-						target=path_resized_image
-					):
-						path = path_resized_image
-				base64_image = encode_image(path)
-				mime_type, _ = mimetypes.guess_type(path)
-				parts.append({
-					"type": ContentType.IMAGE_URL,
-					"image_url": {
-						"url": f"data:{mime_type};base64,{base64_image}"
-					}
-				})
-			elif attachment.type == AttachmentFileTypes.DOCUMENT_LOCAL:
-				part = {
-					"type": ContentType.INPUT_FILE,
-					"file_path": path,
-					"filename": attachment.name,
-				}
-				if provider:
-					from .promptcache import stored_file_id
-
-					fid = stored_file_id(attachment, provider)
-					if fid:
-						part["file_id"] = fid
-				parts.append(part)
-			else:
-				raise ValueError(f"Invalid attachment type for {path}")
-		return parts
-
-	def getAudioContent(self, audioPaths=None, prompt=None):
-		"""Build input_audio content for audio-capable models."""
-		audioPaths = audioPaths or self.audioPathList
-		if not audioPaths:
-			return []
-		content = []
-		if prompt:
-			content.append({"type": ContentType.TEXT, "text": prompt})
-		for path in audioPaths:
-			path_str = path if isinstance(path, str) else getattr(path, "path", str(path))
-			if not os.path.exists(path_str):
-				continue
-			ext = os.path.splitext(path_str)[1].lower()
-			fmt = AUDIO_EXT_TO_FORMAT.get(ext, "wav")
-			with open(path_str, "rb") as f:
-				data_b64 = base64.b64encode(f.read()).decode("utf-8")
-			content.append({
-				"type": ContentType.INPUT_AUDIO,
-				"input_audio": {"data": data_b64, "format": fmt}
-			})
-		return content
-
-	def getMessages(
-		self,
-		messages: list,
-		*,
-		until_block=None,
-	):
-		"""Append chat history blocks to ``messages``.
-
-		When ``until_block`` is set, include every prior turn (user + assistant) and
-		only the user turn for ``until_block`` (no assistant reply), then stop.
-		"""
-		block = self.firstBlock
-		while block:
-			userContent = []
-			if block.filesList or getattr(block, "audioPathList", None):
-				if block.prompt:
-					userContent.append({"type": ContentType.TEXT, "text": block.prompt})
-				if block.filesList:
-					userContent.extend(self.getFilesContent(block.filesList, prompt=None))
-				if getattr(block, "audioPathList", None):
-					tlist = getattr(block, "audioTranscriptList", None)
-					if tlist is not None and len(tlist) == len(block.audioPathList) and any(t for t in tlist):
-						for t in tlist:
-							if t:
-								userContent.append({"type": ContentType.TEXT, "text": t})
-					else:
-						userContent.extend(self.getAudioContent(block.audioPathList, prompt=None))
-			elif block.prompt:
-				userContent = block.prompt
-			if userContent:
-				messages.append({
-					"role": Role.USER,
-					"content": userContent
-				})
-			stop_after = until_block is not None and block is until_block
-			if not stop_after and block.responseText:
-				messages.append({
-					"role": Role.ASSISTANT,
-					"content": block.responseText
-				})
-			if stop_after:
-				break
-			block = block.next
-
 	def onSetFocus(self, evt):
 		global activeChatDlg
 		activeChatDlg = self
@@ -2695,92 +1872,8 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		if not speechOnly:
 			queueHandler.queueFunction(queueHandler.eventQueue, braille.handler.message, msg)
 
-	def _resolveDictationConfig(self):
-		model = None
-		account = None
-		try:
-			model = self.getCurrentModel()
-		except Exception:
-			log.debug("Ignored error", exc_info=True)
-			model = None
-		try:
-			account = self.getCurrentAccount()
-		except Exception:
-			log.debug("Ignored error", exc_info=True)
-			account = None
-		use_direct = bool(getattr(model, "audioInput", False))
-		transcription_provider = get_transcription_provider(self.conf["audio"])
-		transcription_account_id = None
-		transcription_model = None
-		if not use_direct:
-			if transcription_provider == TranscriptionProvider.OPENAI:
-				transcription_account_id = self.conf["audio"].get("openaiTranscriptionAccountId", "").strip()
-				if not transcription_account_id and account and account.get("provider") == Provider.OpenAI:
-					transcription_account_id = account.get("id")
-				model_id = getattr(model, "id", "")
-				if (
-					model
-					and getattr(model, "provider", "") == Provider.OpenAI
-					and isinstance(model_id, str)
-					and (model_id == "whisper-1" or "transcribe" in model_id.lower())
-				):
-					transcription_model = model_id
-			elif transcription_provider == TranscriptionProvider.MISTRAL:
-				transcription_account_id = self.conf["audio"].get("mistralTranscriptionAccountId", "").strip()
-				if not transcription_account_id and account and account.get("provider") == Provider.MistralAI:
-					transcription_account_id = account.get("id")
-				model_id = getattr(model, "id", "")
-				if (
-					model
-					and getattr(model, "provider", "") == Provider.MistralAI
-					and isinstance(model_id, str)
-					and ("voxtral" in model_id.lower() or "transcribe" in model_id.lower())
-				):
-					transcription_model = model_id
-			elif transcription_provider == TranscriptionProvider.CUSTOM_OPENAI:
-				transcription_account_id = self.conf["audio"].get("customOpenaiTranscriptionAccountId", "").strip()
-				if not transcription_account_id and account and account.get("provider") == Provider.CustomOpenAI:
-					transcription_account_id = account.get("id")
-		return {
-			"use_direct": use_direct,
-			"transcription_provider": transcription_provider,
-			"transcription_account_id": transcription_account_id,
-			"transcription_model": transcription_model,
-		}
-
-	def onRecord(self, evt):
-		if isinstance(self.worker, RecordThread):
-			self.onStopRecord(evt)
-			return
-		if self.worker:
-			return
-		cfg = self._resolveDictationConfig()
-		self.disableControls()
-		page = self.get_active_page()
-		self._dictation_page = page
-		self._worker_page = page
-		page.worker = RecordThread(
-			self.client,
-			self,
-			conf=self.conf["audio"],
-			responseFormat="json",
-			useDirectAudio=cfg["use_direct"],
-			transcriptionProvider=cfg["transcription_provider"],
-			transcriptionAccountId=cfg["transcription_account_id"],
-			transcriptionModel=cfg["transcription_model"],
-		)
-		page.worker.start()
-
 	def onProviderTools(self, evt):
 		show_tools_menu(self, self.toolsBtn)
-
-	def onStopRecord(self, evt):
-		self.disableControls()
-		wp = getattr(self, "_worker_page", None)
-		if wp and isinstance(wp.worker, RecordThread):
-			stop_worker_thread(wp.worker)
-			wp.worker = None
-		self.enableControls()
 
 	def disableControls(self, keep_prompt_editable=False):
 		self.submitBtn.Disable()
