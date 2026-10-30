@@ -2,8 +2,6 @@
 
 import json
 import threading
-import urllib.error
-import urllib.request
 import winsound
 
 import addonHandler
@@ -19,6 +17,7 @@ from .consts import (
 	UI_FORM_ROW_BORDER_PX,
 	UI_SECTION_SPACING_PX,
 )
+from .apiclient import APIStatusError, http_request_json
 from .model import clearModelCache
 from .providertools_helpers import add_labeled_factory, parse_modelfile
 from .thread_shutdown import stop_worker_thread
@@ -271,25 +270,20 @@ class OllamaModelManagerToolDialog(ToolDialogBase):
 			method, endpoint = self._endpoint_for_action(action)
 			payload = self._build_payload(action)
 			url = self._native_base_url(account_id) + endpoint
-			data = None
-			if payload is not None:
-				data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-			req = urllib.request.Request(url, data=data, headers=self._headers(account_id), method=method)
-			with urllib.request.urlopen(req, timeout=120) as resp:
-				raw = resp.read().decode("utf-8", errors="replace")
-			try:
-				parsed = json.loads(raw) if raw else {}
-			except Exception:
-				parsed = raw
+			parsed = http_request_json(
+				url,
+				method=method,
+				headers=self._headers(account_id),
+				json_body=payload,
+				timeout=120,
+				allow_text=True,
+			)
+			raw = parsed if isinstance(parsed, str) else json.dumps(parsed, ensure_ascii=False)
 			formatted = self._format_result(action, parsed)
 			if action in ("pull", "delete", "create", "copy"):
 				clearModelCache(Provider.Ollama)
-		except urllib.error.HTTPError as e:
-			try:
-				body = e.read().decode("utf-8", errors="replace")
-			except Exception:
-				body = str(e)
-			err = f"HTTP {e.code}: {body}"
+		except APIStatusError as e:
+			err = f"HTTP {e.status_code}: {e.response_body or e}"
 		except Exception as e:
 			err = str(e)
 		wx.CallAfter(self._onWorkerDone, formatted, raw, err)

@@ -11,11 +11,9 @@ import json
 import mimetypes
 import os
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
-from .apiclient import build_multipart_body
+from .apiclient import APIConnectionError, APIStatusError, build_multipart_body, http_request_json
 
 TEXT_API_BASE_URL = "https://text.external-api.pangram.com"
 FILE_API_BASE_URL = "https://file-external.api.pangram.com"
@@ -96,29 +94,23 @@ def _request(method, url, api_key, *, payload=None, data=None, content_type=None
 		content_type = "application/json"
 	if content_type:
 		headers["Content-Type"] = content_type
-	req = urllib.request.Request(url, data=data, headers=headers, method=method)
 	try:
-		with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
-			raw = resp.read().decode("utf-8", errors="replace")
-	except urllib.error.HTTPError as e:
-		try:
-			body = e.read().decode("utf-8", errors="replace")
-		except Exception:
-			body = ""
-		hint = _STATUS_HINTS.get(e.code, "")
+		result = http_request_json(url, method=method, headers=headers, data=data, timeout=_REQUEST_TIMEOUT, allow_text=True)
+	except APIStatusError as e:
+		body = e.response_body or ""
+		hint = _STATUS_HINTS.get(e.status_code, "")
 		detail = _error_detail(body)
-		message = f"HTTP {e.code}"
+		message = f"HTTP {e.status_code}"
 		if hint:
 			message += f" ({hint})"
 		if detail:
 			message += f": {detail}"
-		raise PangramError(message, status_code=e.code, body=body) from None
-	if not raw:
-		return {}
-	try:
-		return json.loads(raw)
-	except Exception:
-		raise PangramError(f"Invalid JSON response: {raw[:500]}") from None
+		raise PangramError(message, status_code=e.status_code, body=body) from None
+	except APIConnectionError as e:
+		raise PangramError(str(e)) from None
+	if isinstance(result, str):
+		raise PangramError(f"Invalid JSON response: {result[:500]}")
+	return result
 
 
 def _check_stop(should_stop):

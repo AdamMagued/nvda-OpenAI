@@ -1,10 +1,8 @@
-import json
 from datetime import date
-import urllib.request
-import urllib.error
 import addonHandler
 from logHandler import log
 from . import apikeymanager
+from .apiclient import APIConnectionError, APIStatusError, http_request_json
 from .anthropicthinking import anthropic_thinking_default_on, get_anthropic_thinking_profile
 from .reasoningrequest import (
 	catalog_effort_values,
@@ -460,14 +458,10 @@ def _fetch_ollama_tags(base_url: str, headers: dict) -> dict:
 	native_base = _ollama_native_base(base_url)
 	if not native_base:
 		return {}
-	req = urllib.request.Request(
-		native_base + "/api/tags",
-		headers=headers,
-	)
 	try:
-		with urllib.request.urlopen(req, timeout=15) as response:
-			payload = json.loads(response.read().decode("utf-8"))
+		payload = http_request_json(native_base + "/api/tags", headers=headers, timeout=15)
 	except Exception:
+		log.debug("Ollama /api/tags failed for %s", native_base, exc_info=True)
 		return {}
 	models = payload.get("models", []) if isinstance(payload, dict) else []
 	index = {}
@@ -484,16 +478,12 @@ def _fetch_ollama_tags(base_url: str, headers: dict) -> dict:
 
 def _fetch_ollama_show(native_base: str, name: str, headers: dict) -> dict:
 	"""``POST /api/show`` for one model, or ``{}`` on failure."""
-	req = urllib.request.Request(
-		native_base + "/api/show",
-		data=json.dumps({"model": name}).encode("utf-8"),
-		headers=dict(headers, **{"Content-Type": "application/json"}),
-		method="POST",
-	)
 	try:
-		with urllib.request.urlopen(req, timeout=10) as response:
-			payload = json.loads(response.read().decode("utf-8"))
+		payload = http_request_json(
+			native_base + "/api/show", method="POST", headers=headers, json_body={"model": name}, timeout=10
+		)
 	except Exception:
+		log.debug("Ollama /api/show failed for %s", name, exc_info=True)
 		return {}
 	return payload if isinstance(payload, dict) else {}
 
@@ -830,18 +820,10 @@ def getModels(provider, account_id: str = None) -> list:
 			data = {"models": model_list}
 		else:
 			url = base_url.rstrip("/") + "/models"
-			req = urllib.request.Request(
-				url,
-				headers=headers
-			)
 			try:
-				with urllib.request.urlopen(req, timeout=30) as response:
-					data = json.loads(response.read().decode("utf-8"))
-			except (urllib.error.URLError, urllib.error.HTTPError) as e:
+				data = http_request_json(url, headers=headers, timeout=30)
+			except (APIStatusError, APIConnectionError) as e:
 				log.warning("OpenAI addon: failed to fetch models for %s: %s", provider, e)
-				return []
-			except json.JSONDecodeError as e:
-				log.warning("OpenAI addon: invalid JSON for %s models: %s", provider, e)
 				return []
 			except Exception as e:
 				log.warning("OpenAI addon: error fetching models for %s: %s", provider, e)
@@ -862,17 +844,12 @@ def getModels(provider, account_id: str = None) -> list:
 		headers = {"User-Agent": "Mozilla/5.0 (compatible; NVDA-OpenAI-Addon/1.0)"}
 		ollama_tags = {}
 	if provider != Provider.Ollama:
-		req = urllib.request.Request(
-			url,
-			headers=headers
-		)
 		try:
-			with urllib.request.urlopen(req, timeout=30) as response:
-				data = json.loads(response.read().decode("utf-8"))
-		except (urllib.error.URLError, urllib.error.HTTPError) as e:
+			data = http_request_json(url, headers=headers, timeout=30)
+		except (APIStatusError, APIConnectionError) as e:
 			log.warning("OpenAI addon: failed to fetch models for %s: %s", provider, e)
 			return []
-		except json.JSONDecodeError as e:
+		except ValueError as e:
 			log.warning("OpenAI addon: invalid JSON for %s models: %s", provider, e)
 			return []
 		except Exception as e:

@@ -107,12 +107,16 @@ def _open_streaming(opener, req, *, timeout: int) -> Any:
 	return resp
 
 
-def _open_json(opener, req, *, timeout: int) -> dict:
-	"""Open a request and return the parsed JSON body. Always closes the response."""
+def _open_json(opener, req, *, timeout: int, allow_text: bool = False) -> Any:
+	"""Open a request and return the parsed JSON body. Always closes the response.
+
+	With ``allow_text``, a non-JSON body is returned as a string instead of
+	raising.
+	"""
 	try:
 		with opener.open(req, timeout=timeout) as resp:
 			raw = resp.read().decode("utf-8", errors="replace")
-			if resp.status != 200:
+			if not 200 <= resp.status < 300:
 				raise APIStatusError(
 					_resolve_error_message(raw, resp.status),
 					status_code=resp.status,
@@ -123,6 +127,8 @@ def _open_json(opener, req, *, timeout: int) -> dict:
 			try:
 				return json.loads(raw)
 			except json.JSONDecodeError:
+				if allow_text:
+					return raw
 				raise APIStatusError(
 					_resolve_error_message(raw, resp.status),
 					status_code=resp.status,
@@ -143,7 +149,7 @@ def _open_bytes(opener, req, *, timeout: int) -> tuple[bytes, str]:
 	"""Open a request and return (raw_bytes, content_type). Always closes the response."""
 	try:
 		with opener.open(req, timeout=timeout) as resp:
-			if resp.status != 200:
+			if not 200 <= resp.status < 300:
 				text = resp.read().decode("utf-8", errors="replace")
 				raise APIStatusError(
 					_resolve_error_message(text, resp.status),
@@ -161,3 +167,29 @@ def _open_bytes(opener, req, *, timeout: int) -> tuple[bytes, str]:
 		)
 	except (urllib.error.URLError, OSError, ConnectionError) as e:
 		raise APIConnectionError(str(e)) from e
+
+
+def http_request_json(
+	url: str,
+	*,
+	method: str = "GET",
+	headers: Optional[dict] = None,
+	json_body: Any = None,
+	data: Optional[bytes] = None,
+	timeout: int = 30,
+	allow_text: bool = False,
+) -> Any:
+	"""Send one HTTP request and return its parsed JSON body (``{}`` when empty).
+
+	Shared by every module that is not a chat client (model lists, tools,
+	whisper.cpp) so they get the same User-Agent, proxy/SSL opener and error
+	parsing. Raises ``APIStatusError`` for HTTP errors and
+	``APIConnectionError`` for network failures.
+	"""
+	all_headers = {"User-Agent": _USER_AGENT}
+	all_headers.update(headers or {})
+	if json_body is not None:
+		data = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+		all_headers.setdefault("Content-Type", "application/json")
+	req = urllib.request.Request(url, data=data, headers=all_headers, method=method)
+	return _open_json(_create_opener(), req, timeout=timeout, allow_text=allow_text)

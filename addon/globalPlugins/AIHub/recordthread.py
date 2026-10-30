@@ -1,10 +1,8 @@
 import ctypes
 from ctypes import wintypes
-import json
 import os
 import re
 import threading
-from urllib.request import Request, urlopen
 import uuid
 import wave
 import winsound
@@ -25,6 +23,7 @@ from keyboardHandler import KeyboardInputGesture
 from . import apikeymanager
 from .apiclient import (
 	build_multipart_body,
+	http_request_json,
 	Transcription,
 	transcribe_audio_mistral,
 	configure_client_for_provider,
@@ -385,12 +384,9 @@ class RecordThread(threading.Thread):
 			{"temperature": 0, "response_format": "json"},
 			[("file", "tmp.wav", file_data, "audio/wav")],
 		)
-		headers = {"Content-Type": content_type}
-		req = Request(url, body, headers)
-		response = urlopen(req, timeout=3600)
-		if response.getcode() != 200:
-			raise RuntimeError(f"Error: {response.getcode()}")
-		data = json.loads(response.read().decode("utf-8"))
+		data = http_request_json(
+			url, method="POST", headers={"Content-Type": content_type}, data=body, timeout=3600
+		)
 		if "error" in data:
 			raise RuntimeError(f"Error: {data['error']}")
 		return WhisperTranscription(data.get("text", ""))

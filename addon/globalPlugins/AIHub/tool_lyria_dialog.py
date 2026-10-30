@@ -1,9 +1,7 @@
 """Dedicated dialog for Google Lyria 3 Pro."""
 
 import base64
-import json
 import threading
-import urllib.request
 import winsound
 
 import addonHandler
@@ -21,6 +19,7 @@ from .consts import (
 	UI_FORM_ROW_BORDER_PX,
 	UI_SECTION_SPACING_PX,
 )
+from .apiclient import http_request_json
 from .apiclient._google import (
 	GEMINI_INTERACTIONS_URL,
 	build_google_native_headers,
@@ -191,14 +190,9 @@ class Lyria3ProToolDialog(ToolDialogBase):
 
 	@staticmethod
 	def _post_json(url, api_key, body):
-		req = urllib.request.Request(
-			url,
-			data=json.dumps(body).encode("utf-8"),
-			headers=build_google_native_headers(api_key),
-			method="POST",
+		return http_request_json(
+			url, method="POST", headers=build_google_native_headers(api_key), json_body=body, timeout=300
 		)
-		with urllib.request.urlopen(req, timeout=300) as resp:
-			return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 	def _try_lyria_generate_via_interactions(self, api_key, model, full_prompt, options):
 		"""Documented Lyria endpoint: https://ai.google.dev/gemini-api/docs/music-generation

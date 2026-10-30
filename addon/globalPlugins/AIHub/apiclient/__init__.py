@@ -17,6 +17,7 @@ Public API (used elsewhere in the addon):
 """
 from __future__ import annotations
 
+from ._http import http_request_json
 from ._client import (
 	OpenAIClient,
 	build_multipart_body,
@@ -56,6 +57,7 @@ __all__ = [
 	"Transcription",
 	"_resolve_error_message",
 	"build_multipart_body",
+	"http_request_json",
 	"configure_client_for_provider",
 	"mistral_api_request",
 	"mistral_transcription_request",
