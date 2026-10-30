@@ -1,5 +1,7 @@
 """Model/account list handlers for ConversationDialog."""
 
+import threading
+
 import wx
 
 import addonHandler
@@ -9,7 +11,7 @@ import ui
 from . import apikeymanager
 from .consts import Provider
 from .modeldetailsutils import build_model_details_html
-from .model import clearModelCache, getModels
+from .model import clearModelCache, getCachedModels, getModels
 
 
 # Providers whose model listing depends on a per-account base URL.
@@ -137,14 +139,71 @@ class ModelHandlersMixin:
 				lst.SetSelection(0)
 
 	def _reload_models_for_current_account(self, model_to_select=None):
-		"""Load `self._models` for the selected account and fill the active tab's model list."""
+		"""Load `self._models` for the selected account and fill the active tab's model list.
+
+		Uncached model lists load in the background (catalog download, Ollama or
+		custom server) so an offline, unreachable or slow host never freezes the
+		dialog. Returns True when the list was filled synchronously.
+		"""
+		self._modelsLoadToken = None
 		account = self.getCurrentAccount()
 		if not account:
 			self._models = []
 			self._refreshModelsList(model_to_select=model_to_select)
+			return True
+		provider = account["provider"]
+		account_id = account.get("id")
+		cached = getCachedModels(provider, account_id)
+		if cached is not None:
+			self._models = cached
+			self._refreshModelsList(model_to_select=model_to_select)
+			return True
+		self._models = []
+		self._refreshModelsList()
+		# Translators: Placeholder in the model list while models are fetched from the account's server.
+		self._showModelsPlaceholder(_("Loading models..."))
+		token = object()
+		self._modelsLoadToken = token
+
+		def _load():
+			models = getModels(provider, account_id=account_id)
+			wx.CallAfter(self._onModelsLoaded, token, account.get("key"), models, model_to_select)
+
+		threading.Thread(target=_load, daemon=True).start()
+		return False
+
+	def _showModelsPlaceholder(self, text):
+		try:
+			self.modelsListCtrl.Append(text, None)
+		except Exception:
+			pass
+
+	def _onModelsLoaded(self, token, account_key, models, model_to_select):
+		try:
+			if not self or self.IsBeingDeleted():
+				return
+		except RuntimeError:
 			return
-		self._models = getModels(account["provider"], account_id=account.get("id"))
+		current = self.getCurrentAccount()
+		if token is not getattr(self, "_modelsLoadToken", None) or not current or current.get("key") != account_key:
+			# The user moved to another account meanwhile; the result stays cached.
+			return
+		self._modelsLoadToken = None
+		self._models = models
 		self._refreshModelsList(model_to_select=model_to_select)
+		if not models:
+			# Translators: Placeholder in the model list when the model list could not be downloaded (offline, unreachable server) or was empty.
+			self._showModelsPlaceholder(_("No models available: the model list could not be loaded."))
+		apply_state = getattr(self, "_applyConversationUiStateToChrome", None)
+		if not models or not callable(apply_state):
+			self.onModelChange(None)
+			return
+		# The tab's saved options were applied before its models existed: re-apply them.
+		self._sync_suppress_tab_capture = True
+		try:
+			apply_state(self.get_active_page())
+		finally:
+			self._sync_suppress_tab_capture = False
 
 	def onAccountChange(self, evt):
 		account = self.getCurrentAccount()
@@ -632,9 +691,8 @@ class ModelHandlersMixin:
 			self._refreshModelsList()
 			return
 		clearModelCache(account["provider"])
-		self._models = getModels(account["provider"], account_id=account.get("id"))
-		self._refreshModelsList(model_to_select=self._getCurrentModelKey())
-		wx.CallAfter(self.onModelChange, None)
+		if self._reload_models_for_current_account(model_to_select=self._getCurrentModelKey()):
+			wx.CallAfter(self.onModelChange, None)
 
 	def onFavoriteModel(self, evt=None, model=None):
 		if model is None:

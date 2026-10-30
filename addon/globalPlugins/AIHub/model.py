@@ -733,15 +733,76 @@ def clearModelCache(provider=None):
 	global _models
 	if provider is None:
 		_models.clear()
+		_unreachable_until.clear()
 	else:
-		keys = [k for k in _models.keys() if k == provider or (isinstance(k, str) and k.startswith(provider + ":"))]
-		for key in keys:
-			del _models[key]
+		for cache in (_models, _unreachable_until):
+			keys = [k for k in cache.keys() if k == provider or (isinstance(k, str) and k.startswith(provider + ":"))]
+			for key in keys:
+				del cache[key]
 
 
 # Providers whose model list lives at a per-account base URL rather than a
 # fixed PROVIDER_URL. Mirrors apikeymanager._USER_ENDPOINT_PROVIDERS.
 _DYNAMIC_BASE_URL_PROVIDERS = (Provider.CustomOpenAI, Provider.Ollama)
+
+# Model lists come from the network: the SigmaNight catalog / OpenRouter for
+# fixed providers, the account's own server for Ollama and custom endpoints
+# (often LAN hosts unreachable away from that network). Check name resolution
+# + TCP connect quickly before any request, and remember failures briefly so
+# browsing accounts does not retry them.
+_ENDPOINT_PROBE_TIMEOUT = 1.5
+_UNREACHABLE_RETRY_SECONDS = 60
+_unreachable_until: dict = {}
+
+
+def _endpoint_reachable(base_url: str) -> bool:
+	"""True when ``base_url``'s host resolves and accepts a TCP connection within the probe timeout."""
+	import socket
+	import threading
+	import urllib.parse
+
+	parts = urllib.parse.urlsplit(base_url or "")
+	host = parts.hostname
+	if not host:
+		return False
+	port = parts.port or (443 if parts.scheme == "https" else 80)
+	result = []
+
+	def _probe():
+		try:
+			# getaddrinfo has no timeout of its own: the thread join bounds it.
+			with socket.create_connection((host, port), timeout=_ENDPOINT_PROBE_TIMEOUT):
+				result.append(True)
+		except OSError:
+			pass
+
+	worker = threading.Thread(target=_probe, daemon=True)
+	worker.start()
+	worker.join(_ENDPOINT_PROBE_TIMEOUT + 0.5)
+	return bool(result)
+
+
+def _check_endpoint(cache_key: str, base_url: str) -> bool:
+	"""Probe the host serving a model list, caching failures for a short while."""
+	import time
+
+	if _unreachable_until.get(cache_key, 0) > time.monotonic():
+		return False
+	if _endpoint_reachable(base_url):
+		_unreachable_until.pop(cache_key, None)
+		return True
+	_unreachable_until[cache_key] = time.monotonic() + _UNREACHABLE_RETRY_SECONDS
+	log.info("OpenAI addon: endpoint %s unreachable; skipping model list for %ss", base_url, _UNREACHABLE_RETRY_SECONDS)
+	return False
+
+
+def _models_cache_key(provider, account_id: str = None) -> str:
+	return provider if provider not in _DYNAMIC_BASE_URL_PROVIDERS else f"{provider}:{account_id or '__active__'}"
+
+
+def getCachedModels(provider, account_id: str = None):
+	"""Models already loaded for ``provider``/``account_id``, or ``None`` (never blocks)."""
+	return _models.get(_models_cache_key(provider, account_id))
 
 
 def getModels(provider, account_id: str = None) -> list:
@@ -750,9 +811,15 @@ def getModels(provider, account_id: str = None) -> list:
 	if provider is None or provider not in PROVIDER_URL:
 		raise ValueError("Unknown provider %s" % provider)
 	global _models
-	cache_key = provider if provider not in _DYNAMIC_BASE_URL_PROVIDERS else f"{provider}:{account_id or '__active__'}"
+	cache_key = _models_cache_key(provider, account_id)
 	if cache_key in _models:
 		return _models[cache_key]
+	if provider in _DYNAMIC_BASE_URL_PROVIDERS:
+		list_url = apikeymanager.get(provider).get_base_url(account_id=account_id)
+	else:
+		list_url = PROVIDER_URL[provider]
+	if not list_url or not _check_endpoint(cache_key, list_url):
+		return []
 
 	if provider == Provider.Ollama:
 		manager = apikeymanager.get(provider)
