@@ -2,7 +2,6 @@
 
 import json
 import os
-import threading
 import winsound
 
 import addonHandler
@@ -23,6 +22,7 @@ from .consts import (
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory, safe_float
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -208,7 +208,8 @@ class MistralSpeechToTextToolDialog(ToolDialogBase):
 			)
 		except Exception as e:
 			err = e
-		wx.CallAfter(
+		call_after_if_alive(
+			self,
 			self._onThreadDone,
 			file_path,
 			model,
@@ -375,9 +376,4 @@ class MistralSpeechToTextToolDialog(ToolDialogBase):
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
 		# Translators: Status line on the modal progress window while Mistral is transcribing the selected audio file.
 		self.begin_long_task(_("Transcription in progress..."), self._setBusy)
-		self._worker = threading.Thread(
-			target=self._run_thread,
-			args=(account_id, file_path, model, language, diarize, context_bias, timestamp_granularities, temperature),
-			daemon=True,
-		)
-		self._worker.start()
+		self._worker = start_background(self._run_thread, account_id, file_path, model, language, diarize, context_bias, timestamp_granularities, temperature)

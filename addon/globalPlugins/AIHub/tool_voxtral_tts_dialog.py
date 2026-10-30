@@ -1,7 +1,6 @@
 """Dedicated dialog for Mistral Voxtral TTS."""
 
 import base64
-import threading
 import winsound
 
 import addonHandler
@@ -22,6 +21,7 @@ from .consts import (
 from .mediastore import build_media_path, persist_local_file
 from .providertools_helpers import add_labeled_factory
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -219,7 +219,7 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 			out_path = persist_local_file(out_path, "audio", prefix="voxtral_tts", fallback_ext=ext)
 		except Exception as e:
 			err = e
-		wx.CallAfter(self._onThreadDone, out_path, err, text, model, voice_id, fmt, ref_audio_path)
+		call_after_if_alive(self, self._onThreadDone, out_path, err, text, model, voice_id, fmt, ref_audio_path)
 
 	def _onThreadDone(self, out_path, err, text, model, voice_id, fmt, ref_audio):
 		stop_progress_sound()
@@ -355,7 +355,7 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 				label_to_id[label] = vid
 		except Exception as e:
 			error = e
-		wx.CallAfter(self._on_voices_fetched, labels, label_to_id, error)
+		call_after_if_alive(self, self._on_voices_fetched, labels, label_to_id, error)
 
 	def _on_voices_fetched(self, labels, label_to_id, error):
 		if not self._isDialogAlive():
@@ -386,12 +386,7 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 			self._voiceLabelToId = {}
 			self._populate_voice_combo()
 			return
-		self._voiceFetchWorker = threading.Thread(
-			target=self._fetch_voices_thread,
-			args=(api_key,),
-			daemon=True,
-		)
-		self._voiceFetchWorker.start()
+		self._voiceFetchWorker = start_background(self._fetch_voices_thread, api_key)
 
 	def onRefreshVoices(self, evt):
 		self._refreshVoicesAsync()
@@ -430,9 +425,4 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
 		# Translators: Status line on the modal progress window while Voxtral TTS is synthesizing speech.
 		self.begin_long_task(_("Speech generation in progress..."), self._setBusy)
-		self._worker = threading.Thread(
-			target=self._run_thread,
-			args=(acc_id, text, model, voice_id, fmt, ref_b64, ref_audio),
-			daemon=True,
-		)
-		self._worker.start()
+		self._worker = start_background(self._run_thread, acc_id, text, model, voice_id, fmt, ref_b64, ref_audio)

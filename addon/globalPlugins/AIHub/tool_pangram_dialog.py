@@ -26,6 +26,7 @@ from .consts import (
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -740,12 +741,7 @@ class PangramToolDialog(ToolDialogBase):
 			status = _("AI detection in progress...")
 		self._stopEvent.clear()
 		self.begin_long_task(status, self._setBusy)
-		self._worker = threading.Thread(
-			target=self._runThread,
-			args=(api_key, action, params),
-			daemon=True,
-		)
-		self._worker.start()
+		self._worker = start_background(self._runThread, api_key, action, params)
 
 	def _runThread(self, api_key, action, params):
 		err = None
@@ -781,7 +777,7 @@ class PangramToolDialog(ToolDialogBase):
 			return
 		except Exception as e:
 			err = e
-		wx.CallAfter(self._onThreadDone, action, params, payload, err)
+		call_after_if_alive(self, self._onThreadDone, action, params, payload, err)
 
 	def _formatReport(self, action, params, payload) -> str:
 		if action == ACTION_LIST_MODELS:

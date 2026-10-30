@@ -1,7 +1,5 @@
 """Model/account list handlers for ConversationDialog."""
 
-import threading
-
 import wx
 
 import addonHandler
@@ -11,6 +9,7 @@ import ui
 from logHandler import log
 
 from . import apikeymanager
+from .background import call_after_if_alive, start_background
 from .consts import Provider
 from .modeldetailsutils import build_model_details_html
 from .model import clearModelCache, getCachedModels, getModels
@@ -169,9 +168,9 @@ class ModelHandlersMixin:
 
 		def _load():
 			models = getModels(provider, account_id=account_id)
-			wx.CallAfter(self._onModelsLoaded, token, account.get("key"), models, model_to_select)
+			call_after_if_alive(self, self._onModelsLoaded, token, account.get("key"), models, model_to_select)
 
-		threading.Thread(target=_load, daemon=True).start()
+		start_background(_load)
 		return False
 
 	def _showModelsPlaceholder(self, text):
@@ -181,11 +180,6 @@ class ModelHandlersMixin:
 			pass
 
 	def _onModelsLoaded(self, token, account_key, models, model_to_select):
-		try:
-			if not self or self.IsBeingDeleted():
-				return
-		except RuntimeError:
-			return
 		current = self.getCurrentAccount()
 		if token is not getattr(self, "_modelsLoadToken", None) or not current or current.get("key") != account_key:
 			# The user moved to another account meanwhile; the result stays cached.

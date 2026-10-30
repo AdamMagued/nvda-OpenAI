@@ -1,7 +1,6 @@
 """Dedicated dialog for Ollama model management actions."""
 
 import json
-import threading
 import winsound
 
 import addonHandler
@@ -21,6 +20,7 @@ from .apiclient import APIStatusError, http_request_json
 from .model import clearModelCache
 from .providertools_helpers import add_labeled_factory, parse_modelfile
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -286,7 +286,7 @@ class OllamaModelManagerToolDialog(ToolDialogBase):
 			err = f"HTTP {e.status_code}: {e.response_body or e}"
 		except Exception as e:
 			err = str(e)
-		wx.CallAfter(self._onWorkerDone, formatted, raw, err)
+		call_after_if_alive(self, self._onWorkerDone, formatted, raw, err)
 
 	def _onWorkerDone(self, formatted: str, raw: str, err: str | None):
 		stop_progress_sound()
@@ -324,8 +324,7 @@ class OllamaModelManagerToolDialog(ToolDialogBase):
 		self.begin_long_task(_("Running Ollama action..."), self._setBusy)
 		if self.conf["chatFeedback"]["sndTaskInProgress"]:
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
-		self._worker = threading.Thread(target=self._run_worker, args=(account_id, action), daemon=True)
-		self._worker.start()
+		self._worker = start_background(self._run_worker, account_id, action)
 
 	def onShowRaw(self, evt):
 		text = self._rawResult or self.resultText.GetValue()

@@ -4,7 +4,6 @@ import base64
 import json
 import mimetypes
 import os
-import threading
 import winsound
 
 import addonHandler
@@ -25,6 +24,7 @@ from .consts import (
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory, extract_ocr_text, safe_int
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -284,7 +284,7 @@ class MistralOCRToolDialog(ToolDialogBase):
 				f.write(text or "")
 		except Exception as e:
 			err = e
-		wx.CallAfter(self._onThreadDone, text, txt_path, json_path, err)
+		call_after_if_alive(self, self._onThreadDone, text, txt_path, json_path, err)
 
 	def _onThreadDone(self, text, txt_path, json_path, err):
 		stop_progress_sound()
@@ -503,9 +503,4 @@ class MistralOCRToolDialog(ToolDialogBase):
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
 		# Translators: Status line on the modal progress window while Mistral OCR is processing the selected file.
 		self.begin_long_task(_("OCR in progress..."), self._setBusy)
-		self._worker = threading.Thread(
-			target=self._run_thread,
-			args=(api_key, body),
-			daemon=True,
-		)
-		self._worker.start()
+		self._worker = start_background(self._run_thread, api_key, body)

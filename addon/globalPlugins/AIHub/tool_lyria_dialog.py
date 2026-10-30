@@ -1,7 +1,6 @@
 """Dedicated dialog for Google Lyria 3 Pro."""
 
 import base64
-import threading
 import winsound
 
 import addonHandler
@@ -29,6 +28,7 @@ from .apiclient._google import (
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory, extract_audio_b64, safe_float, safe_int
 from .thread_shutdown import stop_worker_thread
+from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
@@ -290,7 +290,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 				result = self._try_lyria_generate_via_gemini_api(api_key, model, full_prompt, options)
 			except Exception:
 				err = interactions_err
-		wx.CallAfter(self._onGenerationDone, result, err, options.get("response_format", "wav"))
+		call_after_if_alive(self, self._onGenerationDone, result, err, options.get("response_format", "wav"))
 
 	def _onGenerationDone(self, result, err, requested_format):
 		stop_progress_sound()
@@ -445,9 +445,4 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			winsound.PlaySound(SND_PROGRESS, winsound.SND_ASYNC | winsound.SND_LOOP)
 		# Translators: Status line on the modal progress window while Lyria 3 Pro is generating music.
 		self.begin_long_task(_("Music generation in progress..."), self._setBusy)
-		self._worker = threading.Thread(
-			target=self._run_generation_thread,
-			args=(acc_id, api_key, prompt, negative, model, options),
-			daemon=True,
-		)
-		self._worker.start()
+		self._worker = start_background(self._run_generation_thread, acc_id, api_key, prompt, negative, model, options)
