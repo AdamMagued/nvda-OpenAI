@@ -50,6 +50,20 @@ from ._responses_stream import stream_responses_api
 from ._types import ChatCompletion, Transcription
 
 
+# Chat Completions field names that differ per provider (internal name -> wire name).
+# - OpenAI deprecated max_tokens for max_completion_tokens:
+#   https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
+# - Mistral: max_tokens and random_seed: https://docs.mistral.ai/api/endpoint/chat
+# - DeepSeek, OpenRouter and Ollama document max_tokens only.
+_CHAT_PARAM_ALIASES = {
+	Provider.OpenAI: {"max_tokens": "max_completion_tokens"},
+	Provider.MistralAI: {"max_completion_tokens": "max_tokens", "seed": "random_seed"},
+	Provider.DeepSeek: {"max_completion_tokens": "max_tokens"},
+	Provider.OpenRouter: {"max_completion_tokens": "max_tokens"},
+	Provider.Ollama: {"max_completion_tokens": "max_tokens"},
+}
+
+
 def _kwargs_has_web_search_tool(kwargs: dict) -> bool:
 	"""True when ``tools`` includes the OpenAI Responses hosted ``web_search`` tool."""
 	tools = kwargs.get("tools") if isinstance(kwargs, dict) else None
@@ -158,10 +172,11 @@ class OpenAIClient:
 			"extra_body",
 			"think",
 		}
+		aliases = _CHAT_PARAM_ALIASES.get(provider, {})
 		for k, v in kwargs.items():
 			if k in excluded or v is None:
 				continue
-			body[k] = v
+			body[aliases.get(k, k)] = v
 		# Reasoning effort uses different shapes depending on the provider.
 		reasoning_effort = kwargs.get("reasoning_effort")
 		if reasoning_effort is not None:
