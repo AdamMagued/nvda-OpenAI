@@ -6,7 +6,9 @@ import wx
 
 import addonHandler
 import gui
+import speech
 import ui
+from logHandler import log
 
 from . import apikeymanager
 from .consts import Provider
@@ -193,7 +195,12 @@ class ModelHandlersMixin:
 		self._refreshModelsList(model_to_select=model_to_select)
 		if not models:
 			# Translators: Placeholder in the model list when the model list could not be downloaded (offline, unreachable server) or was empty.
-			self._showModelsPlaceholder(_("No models available: the model list could not be loaded."))
+			notice = _("No models available: the model list could not be loaded.")
+			self._showModelsPlaceholder(notice)
+		else:
+			# Translators: Spoken when a model list finishes loading in the background; {count} is the number of models.
+			notice = _("{count} models loaded").format(count=len(models))
+		self._scheduleModelsNotice(account_key, notice)
 		apply_state = getattr(self, "_applyConversationUiStateToChrome", None)
 		if not models or not callable(apply_state):
 			self.onModelChange(None)
@@ -205,7 +212,40 @@ class ModelHandlersMixin:
 		finally:
 			self._sync_suppress_tab_capture = False
 
+	# Let NVDA start announcing the newly selected account before the notice.
+	_MODELS_NOTICE_MIN_DELAY = 0.6
+
+	def _scheduleModelsNotice(self, account_key, notice):
+		"""Speak ``notice`` after the account announcement, never before or over it.
+
+		Speech only, so the braille display keeps showing the account. It is
+		spoken at least ``_MODELS_NOTICE_MIN_DELAY`` after the account change,
+		with normal priority (queued behind what NVDA is saying), and dropped if
+		the user has moved to another account or left the dialog meanwhile.
+		"""
+		import core
+		from time import monotonic
+
+		elapsed = monotonic() - getattr(self, "_accountChangedAt", 0.0)
+		delay_ms = int(max(0.0, self._MODELS_NOTICE_MIN_DELAY - elapsed) * 1000)
+
+		def _speak():
+			try:
+				if not self or self.IsBeingDeleted() or not self.IsActive():
+					return
+				current = self.getCurrentAccount()
+				if not current or current.get("key") != account_key:
+					return
+				speech.speakMessage(notice)
+			except Exception:
+				log.debug("Unable to announce model loading", exc_info=True)
+
+		core.callLater(delay_ms, _speak)
+
 	def onAccountChange(self, evt):
+		from time import monotonic
+
+		self._accountChangedAt = monotonic()
 		account = self.getCurrentAccount()
 		if not account:
 			self._models = []
