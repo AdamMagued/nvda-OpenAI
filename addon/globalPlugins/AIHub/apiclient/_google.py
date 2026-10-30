@@ -224,13 +224,17 @@ def _apply_gemini_generation_config(body: dict[str, Any], model_id: str, kwargs:
 			gen["seed"] = int(kwargs["seed"])
 		except (TypeError, ValueError):
 			pass
+	# https://ai.google.dev/api/generate-content#GenerationConfig
+	for src, dst in (("presence_penalty", "presencePenalty"), ("frequency_penalty", "frequencyPenalty")):
+		if kwargs.get(src) is not None:
+			gen[dst] = kwargs[src]
 	stop = kwargs.get("stop")
 	if isinstance(stop, str) and stop.strip():
 		gen["stopSequences"] = [stop.strip()]
 	elif isinstance(stop, list):
 		seq = [s.strip() for s in stop if isinstance(s, str) and s.strip()]
 		if seq:
-			gen["stopSequences"] = seq[:16]
+			gen["stopSequences"] = seq[:5]
 	reasoning_effort = kwargs.get("reasoning_effort")
 	if reasoning_effort:
 		mid = (model_id or "").lower()

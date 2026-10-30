@@ -118,9 +118,9 @@ def _empty_response_notice(finish_reason) -> str:
 	return ""
 
 
-# Providers that cap stop sequences at 4 (per OpenAI chat-completions docs);
-# every other provider supports the more generous Anthropic 16-sequence cap.
-_STOP_SEQUENCE_CAP_4_PROVIDERS = (Provider.OpenAI, Provider.CustomOpenAI)
+# Maximum stop sequences per provider (OpenAI chat-completions: 4; Gemini
+# GenerationConfig.stopSequences: 5); others accept at least 16.
+_STOP_SEQUENCE_CAPS = {Provider.OpenAI: 4, Provider.CustomOpenAI: 4, Provider.Google: 5}
 
 # OpenRouter server tool: https://openrouter.ai/docs/guides/features/server-tools/web-search
 _OPENROUTER_WEB_SEARCH_TOOL = {"type": "openrouter:web_search"}
@@ -351,13 +351,13 @@ def _strip_markdown_for_speech(fragment: str) -> str:
 
 
 def _parse_stop_sequences(text: str, *, provider) -> list[str]:
-	"""Non-empty lines from multiline stop UI; cap follows common provider limits (OpenAI chat: 4)."""
+	"""Non-empty lines from multiline stop UI, capped to the provider's limit."""
 	seq = []
 	for line in (text or "").replace("\r\n", "\n").split("\n"):
 		s = line.strip()
 		if s:
 			seq.append(s)
-	cap = 4 if provider in _STOP_SEQUENCE_CAP_4_PROVIDERS else 16
+	cap = _STOP_SEQUENCE_CAPS.get(provider, 16)
 	return seq[:cap]
 
 
