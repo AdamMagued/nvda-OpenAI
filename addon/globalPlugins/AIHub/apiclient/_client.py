@@ -28,6 +28,8 @@ from ..anthropicthinking import (
 from ..consts import BASE_URLs, Provider
 
 from ._content import (
+	function_tool_specs,
+	strip_private_message_keys,
 	_convert_messages_to_anthropic,
 	_decode_audio_base64,
 	_extract_audio_bytes_from_json_payload,
@@ -127,8 +129,9 @@ class OpenAIClient:
 			return self._anthropic_chat_completions_create(
 				model=model, messages=messages, stream=stream, **kwargs
 			)
+		# OpenAI tool calling on current models requires the Responses API.
 		if provider == Provider.OpenAI and (
-			has_input_files or _kwargs_has_web_search_tool(kwargs)
+			has_input_files or _kwargs_has_web_search_tool(kwargs) or function_tool_specs(kwargs.get("tools"))
 		):
 			return self._responses_create(
 				model=model, messages=messages, stream=stream, **kwargs
@@ -164,7 +167,7 @@ class OpenAIClient:
 		kwargs: dict,
 	) -> dict:
 		"""Build the JSON body for a Chat Completions request."""
-		body: dict[str, Any] = {"model": model, "messages": messages, "stream": stream}
+		body: dict[str, Any] = {"model": model, "messages": strip_private_message_keys(messages), "stream": stream}
 		# Internal pseudo-params that must never appear on the wire.
 		excluded = {
 			"reasoning_enabled",
@@ -316,6 +319,11 @@ class OpenAIClient:
 			if key == "reasoning_effort":
 				body["reasoning"] = {"effort": value}
 				continue
+			if key == "tools":
+				# Responses function tools are flat: {"type": "function", "name", "parameters"...}.
+				value = [
+					{"type": "function", **spec} for spec in function_tool_specs(value)
+				] + [t for t in value if not (isinstance(t, dict) and t.get("type") == "function")]
 			if key == "verbosity":
 				# Responses nests verbosity under ``text`` (Chat Completions keeps it top-level).
 				body.setdefault("text", {})["verbosity"] = value
@@ -414,8 +422,14 @@ class OpenAIClient:
 		if stop_seq:
 			body["stop_sequences"] = stop_seq
 		_apply_anthropic_thinking(body, model, kwargs)
+		tools = [
+			{"name": spec["name"], "description": spec["description"], "input_schema": spec["parameters"]}
+			for spec in function_tool_specs(kwargs.get("tools"))
+		]
 		if kwargs.get("web_search_options") is not None:
-			body["tools"] = [anthropic_web_search_tool(model)]
+			tools.append(anthropic_web_search_tool(model))
+		if tools:
+			body["tools"] = tools
 		cache_control = kwargs.get("cache_control")
 		if isinstance(cache_control, dict) and cache_control:
 			body["cache_control"] = cache_control

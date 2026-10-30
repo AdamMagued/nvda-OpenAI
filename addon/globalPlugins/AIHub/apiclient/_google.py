@@ -15,8 +15,15 @@ import mimetypes
 import urllib.parse
 from typing import Any, Optional
 
-from ..consts import ContentType, Role
-from ._content import _decode_data_url_to_bytes, _input_file_to_data_url, _is_text_media_type
+from ..consts import ContentType, Provider, Role
+from ._content import (
+	_decode_data_url_to_bytes,
+	_input_file_to_data_url,
+	_is_text_media_type,
+	function_tool_specs,
+	raw_turn_for,
+	tool_call_arguments,
+)
 from ._errors import APIError
 from ._http import _USER_AGENT
 from logHandler import log
@@ -163,6 +170,24 @@ def messages_to_gemini_contents(messages: list) -> tuple[Optional[dict], list[di
 		if not isinstance(msg, dict):
 			continue
 		role = str(msg.get("role") or Role.USER).lower()
+		if role == "tool":
+			response_part = {
+				"functionResponse": {"name": msg.get("name", ""), "response": {"result": str(msg.get("content") or "")}}
+			}
+			if contents and contents[-1].get("role") == "user" and all("functionResponse" in p for p in contents[-1]["parts"]):
+				contents[-1]["parts"].append(response_part)
+			else:
+				contents.append({"role": "user", "parts": [response_part]})
+			continue
+		if role == Role.ASSISTANT and msg.get("tool_calls"):
+			raw = raw_turn_for(msg, Provider.Google)
+			if raw is None:
+				raw = [
+					{"functionCall": {"name": c["function"]["name"], "args": tool_call_arguments(c)}}
+					for c in msg["tool_calls"]
+				]
+			contents.append({"role": "model", "parts": raw})
+			continue
 		parts = _openai_content_to_gemini_parts(msg.get("content"))
 		if not parts:
 			continue
@@ -270,8 +295,14 @@ def build_gemini_generate_content_body(model_id: str, messages: list, kwargs: di
 	body: dict[str, Any] = {"contents": contents}
 	if system_instruction:
 		body["systemInstruction"] = system_instruction
+	tools = []
 	if kwargs.get("web_search_options") is not None:
-		body["tools"] = [google_grounding_tool_for_model(model_id)]
+		tools.append(google_grounding_tool_for_model(model_id))
+	specs = function_tool_specs(kwargs.get("tools"))
+	if specs:
+		tools.append({"functionDeclarations": specs})
+	if tools:
+		body["tools"] = tools
 	_apply_gemini_generation_config(body, model_id, kwargs)
 	return body
 

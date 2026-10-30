@@ -31,18 +31,26 @@ class StreamChoice:
 class ChoiceMessage:
 	"""Final assistant message returned by non-streaming responses."""
 
-	__slots__ = ("content", "audio", "reasoning")
+	__slots__ = ("content", "audio", "reasoning", "tool_calls", "raw_turn")
 
 	def __init__(
 		self,
 		content: str = "",
 		audio: Optional[dict] = None,
 		reasoning: str = "",
+		tool_calls: Optional[list] = None,
+		raw_turn: Any = None,
 	):
 		self.content = content or ""
 		# {"data": base64_str, "format": "wav"} when the model returns audio.
 		self.audio = audio
 		self.reasoning = reasoning or ""
+		# Function calls requested by the model: [{"id", "name", "arguments" (JSON string)}].
+		self.tool_calls = list(tool_calls or [])
+		# The provider-native assistant turn (Anthropic content blocks, Gemini parts,
+		# Responses output items), sent back verbatim in tool loops: thinking blocks,
+		# thought signatures and reasoning items must round-trip unchanged.
+		self.raw_turn = raw_turn
 
 
 class Choice:

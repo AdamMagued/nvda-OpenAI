@@ -462,7 +462,9 @@ class CompletionThread(threading.Thread):
 		account_id = account.get("id") if account and account.get("provider") == model.provider else None
 		client = configure_client_for_provider(client, model.provider, account_id=account_id, clone=True)
 		audio_output = getattr(model, "audioOutput", False)
-		use_stream = stream and not audio_output
+		# Local tools run in non-streaming rounds (see toolcalling.run_tool_loop).
+		use_local_tools = bool(conf.get("localTools", False)) and model.allows_request_parameter("tools")
+		use_stream = stream and not audio_output and not use_local_tools
 		params = {
 			"model": model.id,
 			"messages": messages,
@@ -567,6 +569,10 @@ class CompletionThread(threading.Thread):
 					resolve_prompt_cache_key(cache_page),
 					ttl=cache_ttl_for_provider(conf, provider),
 				)
+		if use_local_tools:
+			from .toolcalling import tool_definitions
+
+			params["tools"] = list(params.get("tools") or []) + tool_definitions()
 		if provider == Provider.Anthropic and conf.get("anthropicRefusalFallback", True):
 			params["refusal_fallback"] = True
 		if provider == Provider.xAI:
@@ -590,7 +596,12 @@ class CompletionThread(threading.Thread):
 			t_api_start = time.perf_counter()
 			block.timing["requestSentAt"] = time.time()
 			try:
-				response = client.chat.completions.create(**params)
+				if use_local_tools:
+					from .toolcalling import run_tool_loop
+
+					response = run_tool_loop(lambda p: client.chat.completions.create(**p), params, provider)
+				else:
+					response = client.chat.completions.create(**params)
 			finally:
 				from .promptcache import store_file_ids_from_messages
 

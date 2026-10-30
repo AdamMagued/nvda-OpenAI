@@ -457,6 +457,52 @@ def _convert_content_to_anthropic(content) -> str | list:
 	return blocks if blocks else ""
 
 
+# ---------------------------------------------------------------------------
+# Function-calling turns. Internally they use the Chat Completions shape:
+# an assistant message with ``tool_calls`` (plus ``_raw_turn``/``_raw_provider``,
+# the provider-native turn to send back verbatim) and ``tool`` messages.
+# ---------------------------------------------------------------------------
+
+def function_tool_specs(tools: Any) -> list[dict]:
+	"""The ``{"name", "description", "parameters"}`` of Chat Completions function tools."""
+	specs = []
+	for tool in tools or []:
+		fn = tool.get("function") if isinstance(tool, dict) and tool.get("type") == "function" else None
+		if isinstance(fn, dict) and fn.get("name"):
+			specs.append({
+				"name": fn["name"],
+				"description": fn.get("description", ""),
+				"parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+			})
+	return specs
+
+
+def raw_turn_for(msg: dict, provider) -> Any:
+	"""The verbatim provider turn stored on an assistant tool message, if it came from ``provider``."""
+	if msg.get("_raw_provider") == provider:
+		return msg.get("_raw_turn")
+	return None
+
+
+def tool_call_arguments(call: dict) -> dict:
+	import json
+
+	raw = (call.get("function") or {}).get("arguments") or "{}"
+	try:
+		value = json.loads(raw) if isinstance(raw, str) else raw
+	except ValueError:
+		return {}
+	return value if isinstance(value, dict) else {}
+
+
+def strip_private_message_keys(messages: list) -> list:
+	"""Drop add-on bookkeeping keys (``_raw_turn``...) before sending messages as-is."""
+	return [
+		{k: v for k, v in m.items() if not str(k).startswith("_")} if isinstance(m, dict) else m
+		for m in messages or []
+	]
+
+
 def _convert_messages_to_anthropic(messages: list) -> tuple[Optional[str], list]:
 	"""Convert OpenAI messages to Anthropic format. Returns ``(system, messages)``."""
 	system: Optional[str] = None
@@ -477,6 +523,27 @@ def _convert_messages_to_anthropic(messages: list) -> tuple[Optional[str], list]
 				system = "\n".join(text_parts) if text_parts else None
 			else:
 				system = str(content) if content else None
+			continue
+		if role == "tool":
+			# Tool results go in one user message right after the tool_use turn.
+			result = {"type": "tool_result", "tool_use_id": m.get("tool_call_id", ""), "content": str(content or "")}
+			last = anthropic_msgs[-1] if anthropic_msgs else None
+			if last and last["role"] == "user" and isinstance(last["content"], list) and all(
+				b.get("type") == "tool_result" for b in last["content"]
+			):
+				last["content"].append(result)
+			else:
+				anthropic_msgs.append({"role": "user", "content": [result]})
+			continue
+		if role == "assistant" and m.get("tool_calls"):
+			raw = raw_turn_for(m, Provider.Anthropic)
+			if raw is None:
+				raw = [_anthropic_text_block(content)] if isinstance(content, str) and content.strip() else []
+				raw += [
+					{"type": "tool_use", "id": c.get("id", ""), "name": c["function"]["name"], "input": tool_call_arguments(c)}
+					for c in m["tool_calls"]
+				]
+			anthropic_msgs.append({"role": "assistant", "content": raw})
 			continue
 		if role not in ("user", "assistant"):
 			continue
@@ -546,6 +613,18 @@ def _messages_to_responses_input(
 			continue
 		role = (msg.get("role") or "user").lower()
 		content = msg.get("content", "")
+		if role == "tool":
+			output.append({"type": "function_call_output", "call_id": msg.get("tool_call_id", ""), "output": str(content or "")})
+			continue
+		if role == "assistant" and msg.get("tool_calls"):
+			raw = msg.get("_raw_turn") if msg.get("_raw_provider") in (Provider.OpenAI, Provider.xAI) else None
+			if raw is None:
+				raw = [
+					{"type": "function_call", "call_id": c.get("id", ""), "name": c["function"]["name"], "arguments": c["function"].get("arguments") or "{}"}
+					for c in msg["tool_calls"]
+				]
+			output.extend(raw)
+			continue
 		if isinstance(content, str):
 			text = content.strip()
 			if not text:

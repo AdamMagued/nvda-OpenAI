@@ -74,6 +74,13 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		)
 		self.anthropicRefusalFallback.SetValue(conf.get("anthropicRefusalFallback", True))
 		conversationGroup.addItem(self.anthropicRefusalFallback)
+		self.localTools = wx.CheckBox(
+			conversationBox,
+			# Translators: NVDA Preferences — AI-Hub category: Conversation section — let models call local tools; responses are then not streamed.
+			label=_("Let models call local tools (current date and time, clipboard text); disables streaming"),
+		)
+		self.localTools.SetValue(conf.get("localTools", False))
+		conversationGroup.addItem(self.localTools)
 		cacheTtlHint = wx.StaticText(
 			conversationBox,
 			# Translators: NVDA Preferences — AI-Hub category: Conversation section — explains which providers honor cache duration.
@@ -421,6 +428,7 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		conf["autoSaveConversation"] = self.autoSaveConversation.GetValue()
 		conf["promptCache"] = self.promptCache.GetValue()
 		conf["anthropicRefusalFallback"] = self.anthropicRefusalFallback.GetValue()
+		conf["localTools"] = self.localTools.GetValue()
 		ttl_section = conf.get("promptCacheTtl")
 		if ttl_section is None:
 			conf["promptCacheTtl"] = {}

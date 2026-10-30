@@ -5,6 +5,7 @@ Each parser turns the provider's JSON response shape into a uniform
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from ..consts import Provider
@@ -67,10 +68,18 @@ def _parse_chat_choice(choice: Any, index: int, provider: str) -> Choice:
 			reasoning = _merge_reasoning(reasoning, think_inline)
 
 	audio = msg.get("audio") if isinstance(msg.get("audio"), dict) else None
-	if audio and audio.get("data"):
-		message = ChoiceMessage(content, audio=audio, reasoning=reasoning)
-	else:
-		message = ChoiceMessage(content, reasoning=reasoning)
+	if not (audio and audio.get("data")):
+		audio = None
+	tool_calls = []
+	for call in msg.get("tool_calls") or []:
+		fn = call.get("function") if isinstance(call, dict) else None
+		if isinstance(fn, dict) and fn.get("name"):
+			tool_calls.append({
+				"id": call.get("id") or fn["name"],
+				"name": fn["name"],
+				"arguments": fn.get("arguments") or "{}",
+			})
+	message = ChoiceMessage(content, audio=audio, reasoning=reasoning, tool_calls=tool_calls)
 	return Choice(message, index=index, finish_reason=choice.get("finish_reason"))
 
 
@@ -205,7 +214,7 @@ def parse_responses(data: dict, provider: str = "") -> ChatCompletion:
 		response_id, citations = _extract_responses_metadata(data)
 		encrypted_reasoning = _extract_responses_encrypted_reasoning(data)
 		return ChatCompletion(
-			[Choice(ChoiceMessage(content=text, reasoning=reasoning), finish_reason=responses_finish_reason(data))],
+			[Choice(_responses_message(text, reasoning, output), finish_reason=responses_finish_reason(data))],
 			usage=_normalize_usage_from_payload(data),
 			response_id=response_id,
 			citations=citations,
@@ -254,7 +263,7 @@ def parse_responses(data: dict, provider: str = "") -> ChatCompletion:
 	encrypted_reasoning = _extract_responses_encrypted_reasoning(data)
 
 	return ChatCompletion(
-		[Choice(ChoiceMessage(content=text, reasoning=reasoning), finish_reason=responses_finish_reason(data))],
+		[Choice(_responses_message(text, reasoning, output), finish_reason=responses_finish_reason(data))],
 		usage=_normalize_usage_from_payload(data),
 		response_id=response_id,
 		citations=citations,
@@ -346,11 +355,18 @@ def parse_anthropic(data: dict) -> ChatCompletion:
 		data = {}
 	text = ""
 	reasoning = ""
+	tool_calls = []
 	for blk in data.get("content", []) or []:
 		if not isinstance(blk, dict):
 			continue
 		blk_type = str(blk.get("type", "")).lower()
-		if blk_type == "text":
+		if blk_type == "tool_use":
+			tool_calls.append({
+				"id": blk.get("id") or blk.get("name", ""),
+				"name": blk.get("name", ""),
+				"arguments": json.dumps(blk.get("input") or {}),
+			})
+		elif blk_type == "text":
 			text += blk.get("text", "") or ""
 		elif blk_type == "redacted_thinking":
 			# Encrypted safety-redacted thinking — no readable summary in API.
@@ -360,7 +376,17 @@ def parse_anthropic(data: dict) -> ChatCompletion:
 			if part:
 				reasoning = f"{reasoning}\n{part}".strip() if reasoning else part
 	return ChatCompletion(
-		[Choice(ChoiceMessage(text, reasoning=reasoning), finish_reason=data.get("stop_reason"))],
+		[
+			Choice(
+				ChoiceMessage(
+					text,
+					reasoning=reasoning,
+					tool_calls=tool_calls,
+					raw_turn=data.get("content") if tool_calls else None,
+				),
+				finish_reason=data.get("stop_reason"),
+			)
+		],
 		usage=_normalize_usage(data.get("usage")),
 	)
 
@@ -431,10 +457,28 @@ def parse_gemini_generate_content(data: dict) -> ChatCompletion:
 		text = visible
 		if think_inline:
 			reasoning = _merge_reasoning(reasoning, think_inline)
-	if audio and audio.get("data"):
-		message = ChoiceMessage(text, audio=audio, reasoning=reasoning)
-	else:
-		message = ChoiceMessage(text, reasoning=reasoning)
+	parts = []
+	for candidate in data.get("candidates") or []:
+		content = candidate.get("content") if isinstance(candidate, dict) else None
+		if isinstance(content, dict):
+			parts = content.get("parts") or []
+			break
+	tool_calls = [
+		{
+			"id": f'{part["functionCall"].get("name", "")}-{i}',
+			"name": part["functionCall"].get("name", ""),
+			"arguments": json.dumps(part["functionCall"].get("args") or {}),
+		}
+		for i, part in enumerate(parts)
+		if isinstance(part, dict) and isinstance(part.get("functionCall"), dict)
+	]
+	message = ChoiceMessage(
+		text,
+		audio=audio if audio and audio.get("data") else None,
+		reasoning=reasoning,
+		tool_calls=tool_calls,
+		raw_turn=parts if tool_calls else None,
+	)
 	return ChatCompletion(
 		[Choice(message, finish_reason=gemini_finish_reason(data))],
 		usage=_normalize_usage_from_payload(data),
@@ -457,6 +501,20 @@ def gemini_finish_reason(data: dict) -> Optional[str]:
 	if isinstance(feedback, dict) and feedback.get("blockReason"):
 		return str(feedback["blockReason"]).lower()
 	return None
+
+
+def _responses_message(text: str, reasoning: str, output: list) -> ChoiceMessage:
+	"""Assistant message with any ``function_call`` items of a Responses result."""
+	tool_calls = [
+		{"id": item.get("call_id") or item.get("id", ""), "name": item.get("name", ""), "arguments": item.get("arguments") or "{}"}
+		for item in output or []
+		if isinstance(item, dict) and item.get("type") == "function_call"
+	]
+	raw = [
+		item for item in output or []
+		if isinstance(item, dict) and item.get("type") in ("function_call", "reasoning")
+	]
+	return ChoiceMessage(content=text, reasoning=reasoning, tool_calls=tool_calls, raw_turn=raw if tool_calls else None)
 
 
 def responses_finish_reason(data: dict) -> Optional[str]:
