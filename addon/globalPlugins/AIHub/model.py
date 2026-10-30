@@ -487,7 +487,73 @@ def _fetch_ollama_tags(base_url: str, headers: dict) -> dict:
 	return index
 
 
-def _models_from_ollama_tags(tags_index: dict) -> list:
+def _fetch_ollama_show(native_base: str, name: str, headers: dict) -> dict:
+	"""``POST /api/show`` for one model, or ``{}`` on failure."""
+	req = urllib.request.Request(
+		native_base + "/api/show",
+		data=json.dumps({"model": name}).encode("utf-8"),
+		headers=dict(headers, **{"Content-Type": "application/json"}),
+		method="POST",
+	)
+	try:
+		with urllib.request.urlopen(req, timeout=10) as response:
+			payload = json.loads(response.read().decode("utf-8"))
+	except Exception:
+		return {}
+	return payload if isinstance(payload, dict) else {}
+
+
+def _fetch_ollama_show_index(base_url: str, names, headers: dict) -> dict:
+	"""``/api/show`` payloads for ``names``, fetched in parallel and indexed by name."""
+	native_base = _ollama_native_base(base_url)
+	names = [n for n in names if isinstance(n, str) and n]
+	if not native_base or not names:
+		return {}
+	from concurrent.futures import ThreadPoolExecutor
+
+	with ThreadPoolExecutor(max_workers=min(8, len(names))) as pool:
+		payloads = pool.map(lambda n: _fetch_ollama_show(native_base, n, headers), names)
+		return dict(zip(names, payloads))
+
+
+def ollama_catalog_fields(show: dict) -> dict:
+	"""Translate ``/api/show`` into the catalog fields the model parser understands.
+
+	``capabilities`` gives vision and tools; ``thinking`` gives the levels the
+	model accepts (named levels and/or booleans) and its default:
+	https://docs.ollama.com/capabilities/thinking
+	"""
+	if not isinstance(show, dict):
+		return {}
+	caps = {str(c).lower() for c in show.get("capabilities") or [] if isinstance(c, str)}
+	fields: dict = {}
+	if "vision" in caps:
+		fields["input_modalities"] = ["text", "image"]
+	if "tools" in caps:
+		fields["supported_parameters"] = ["tools"]
+	thinking = show.get("thinking")
+	values = thinking.get("values") if isinstance(thinking, dict) else None
+	if isinstance(values, list) and values:
+		if values == [False]:
+			return fields
+		levels = [v.strip().lower() for v in values if isinstance(v, str) and v.strip()]
+		meta: dict = {"mandatory": False not in values, "supports_max_tokens": False}
+		if levels:
+			meta["supported_efforts"] = levels + (["none"] if False in values else [])
+		default = thinking.get("default")
+		if isinstance(default, str) and default.strip():
+			meta["default_effort"] = default.strip().lower()
+			meta["default_enabled"] = True
+		elif isinstance(default, bool):
+			meta["default_enabled"] = default
+		fields["reasoning"] = meta
+	elif "thinking" in caps:
+		# Thinking without level metadata: simple on/off.
+		fields["reasoning"] = {"mandatory": False, "supports_max_tokens": False}
+	return fields
+
+
+def _models_from_ollama_tags(tags_index: dict, show_index: dict | None = None) -> list:
 	"""Build OpenAI-like model list from Ollama native tags payload."""
 	models = []
 	for name, tag in tags_index.items():
@@ -499,12 +565,13 @@ def _models_from_ollama_tags(tags_index: dict) -> list:
 			val = details.get(key)
 			if val:
 				description_parts.append(str(val))
-		models.append({
+		show_fields = ollama_catalog_fields((show_index or {}).get(name) or {})
+		model = {
 			"id": name,
 			"name": tag.get("name", name),
 			"description": " / ".join(description_parts),
 			"architecture": {
-				"input_modalities": ["text"],
+				"input_modalities": show_fields.get("input_modalities", ["text"]),
 				"output_modalities": ["text"],
 			},
 			"supported_parameters": [
@@ -513,6 +580,7 @@ def _models_from_ollama_tags(tags_index: dict) -> list:
 				"top_k",
 				"stop",
 				"max_tokens",
+				*show_fields.get("supported_parameters", []),
 			],
 			"created": 0,
 			"ollama": {
@@ -521,7 +589,10 @@ def _models_from_ollama_tags(tags_index: dict) -> list:
 				"modified_at": tag.get("modified_at"),
 				"details": details,
 			},
-		})
+		}
+		if "reasoning" in show_fields:
+			model["reasoning"] = show_fields["reasoning"]
+		models.append(model)
 	return models
 
 
@@ -692,7 +763,8 @@ def getModels(provider, account_id: str = None) -> list:
 		# Prefer official native endpoint, then fallback to OpenAI-compatible /v1/models.
 		ollama_tags = _fetch_ollama_tags(base_url, headers)
 		if ollama_tags:
-			model_list = _models_from_ollama_tags(ollama_tags)
+			show_index = _fetch_ollama_show_index(base_url, list(ollama_tags), headers)
+			model_list = _models_from_ollama_tags(ollama_tags, show_index)
 			data = {"models": model_list}
 		else:
 			url = base_url.rstrip("/") + "/models"
