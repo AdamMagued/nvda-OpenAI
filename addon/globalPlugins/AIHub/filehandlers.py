@@ -94,11 +94,12 @@ _STANDARD_IMAGE_MIME = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 #   underlying model). Source: https://openrouter.ai/docs/guides/overview/multimodal/pdfs
 # * xAI Grok: very broad document set via the Files API.
 # * Ollama vision models: images only.
-# * DeepSeek: no attachments.
+# * DeepSeek: image_url parts on vision models.
+#   Source: https://api-docs.deepseek.com/api/create-chat-completion
 PROVIDER_SUPPORTED_FILES = {
 	Provider.OpenAI: {"images": IMAGE_EXTENSIONS, "documents": OPENAI_DOCUMENT_EXTENSIONS},
 	Provider.CustomOpenAI: {"images": IMAGE_EXTENSIONS, "documents": OPENAI_DOCUMENT_EXTENSIONS},
-	Provider.DeepSeek: {"images": set(), "documents": set()},
+	Provider.DeepSeek: {"images": IMAGE_EXTENSIONS, "documents": set()},
 	Provider.Ollama: {"images": IMAGE_EXTENSIONS, "documents": set()},
 	Provider.MistralAI: {"images": IMAGE_EXTENSIONS, "documents": {".pdf"}},
 	Provider.OpenRouter: {"images": IMAGE_EXTENSIONS, "documents": {".pdf"}},
@@ -110,7 +111,7 @@ PROVIDER_SUPPORTED_FILES = {
 PROVIDER_SUPPORTED_URL_MIME = {
 	Provider.OpenAI: {"images": _STANDARD_IMAGE_MIME, "documents": _OPENAI_DOC_MIME},
 	Provider.CustomOpenAI: {"images": _STANDARD_IMAGE_MIME, "documents": _OPENAI_DOC_MIME},
-	Provider.DeepSeek: {"images": set(), "documents": set()},
+	Provider.DeepSeek: {"images": _STANDARD_IMAGE_MIME, "documents": set()},
 	Provider.Ollama: {"images": _STANDARD_IMAGE_MIME, "documents": set()},
 	Provider.MistralAI: {"images": _STANDARD_IMAGE_MIME, "documents": {"application/pdf"}},
 	Provider.OpenRouter: {"images": _STANDARD_IMAGE_MIME, "documents": {"application/pdf"}},
