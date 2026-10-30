@@ -93,7 +93,8 @@ _STANDARD_IMAGE_MIME = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 # * OpenRouter: images + PDF (PDF parsing is normalized by OpenRouter for any
 #   underlying model). Source: https://openrouter.ai/docs/guides/overview/multimodal/pdfs
 # * xAI Grok: very broad document set via the Files API.
-# * Ollama vision models: images only.
+# * Ollama vision models: local (base64) images only; image URLs are not
+#   supported. Source: https://docs.ollama.com/api/openai-compatibility
 # * DeepSeek: image_url parts on vision models.
 #   Source: https://api-docs.deepseek.com/api/create-chat-completion
 PROVIDER_SUPPORTED_FILES = {
@@ -112,7 +113,7 @@ PROVIDER_SUPPORTED_URL_MIME = {
 	Provider.OpenAI: {"images": _STANDARD_IMAGE_MIME, "documents": _OPENAI_DOC_MIME},
 	Provider.CustomOpenAI: {"images": _STANDARD_IMAGE_MIME, "documents": _OPENAI_DOC_MIME},
 	Provider.DeepSeek: {"images": _STANDARD_IMAGE_MIME, "documents": set()},
-	Provider.Ollama: {"images": _STANDARD_IMAGE_MIME, "documents": set()},
+	Provider.Ollama: {"images": set(), "documents": set()},
 	Provider.MistralAI: {"images": _STANDARD_IMAGE_MIME, "documents": {"application/pdf"}},
 	Provider.OpenRouter: {"images": _STANDARD_IMAGE_MIME, "documents": {"application/pdf"}},
 	Provider.Anthropic: {"images": _STANDARD_IMAGE_MIME, "documents": {"application/pdf", "text/plain"}},

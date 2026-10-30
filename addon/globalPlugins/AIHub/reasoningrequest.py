@@ -281,14 +281,6 @@ def _deepseek_effort(effort: str) -> str:
 	return "high"
 
 
-def _ollama_effort(effort: str) -> str:
-	if effort in ("high", "medium", "low"):
-		return effort
-	if effort == ReasoningEffort.MINIMAL.value:
-		return "low"
-	return "medium"
-
-
 def apply_reasoning_enabled(
 	params: dict[str, Any],
 	model,
@@ -313,7 +305,9 @@ def apply_reasoning_enabled(
 		return
 	effort_use = reasoning_selection[1] if reasoning_selection is not None else effort
 	if provider == Provider.Ollama:
-		params["reasoning_effort"] = _ollama_effort(effort_use)
+		# Ollama maps aliases itself (minimal -> low, xhigh -> max):
+		# https://docs.ollama.com/api/openai-compatibility
+		params["reasoning_effort"] = effort_use or ReasoningEffort.MEDIUM.value
 		return
 	if provider == Provider.OpenRouter:
 		body: dict[str, Any] = {"enabled": True}
