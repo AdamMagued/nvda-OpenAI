@@ -298,6 +298,10 @@ class OpenAIClient:
 			if key == "reasoning_effort":
 				body["reasoning"] = {"effort": value}
 				continue
+			if key == "verbosity":
+				# Responses nests verbosity under ``text`` (Chat Completions keeps it top-level).
+				body.setdefault("text", {})["verbosity"] = value
+				continue
 			body[key] = value
 		return body
 

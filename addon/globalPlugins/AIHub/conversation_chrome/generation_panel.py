@@ -9,6 +9,7 @@ import addonHandler
 from ..consts import UI_SECTION_SPACING_PX
 from .reasoning_section import ReasoningChromeSection
 from .tools_section import ToolsChromeSection
+from .verbosity_section import VerbosityChromeSection
 
 addonHandler.initTranslation()
 
@@ -21,6 +22,7 @@ class GenerationChromePanel:
 		self.parent = parent
 		self._sections = [
 			ReasoningChromeSection(dialog, parent),
+			VerbosityChromeSection(dialog, parent),
 			ToolsChromeSection(dialog, parent),
 		]
 

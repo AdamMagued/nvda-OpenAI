@@ -36,6 +36,7 @@ from .consts import (
 )
 from .history import HistoryBlock
 from .mediastore import persist_local_file
+from .conversation_chrome.verbosity_section import selected_verbosity
 from .pricingutils import estimate_usage_cost
 from .recordthread import transcribe_audio_file
 from .reasoningrequest import (
@@ -761,6 +762,9 @@ class CompletionThread(threading.Thread):
 			# so a small fixed default truncates replies. Streaming avoids HTTP timeouts
 			# on larger values.
 			params["max_tokens"] = min(model.maxOutputToken, 64000 if stream else 16000)
+		verbosity = selected_verbosity(wnd, model)
+		if verbosity:
+			params["verbosity"] = verbosity
 		_apply_web_search_settings(params, model, wnd, provider)
 		_apply_x_search_settings(params, model, wnd, provider)
 		_apply_code_interpreter_settings(params, model, wnd, provider)
