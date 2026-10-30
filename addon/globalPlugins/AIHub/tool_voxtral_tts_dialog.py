@@ -1,16 +1,14 @@
 """Dedicated dialog for Mistral Voxtral TTS."""
 
 import base64
-import json
 import threading
-import urllib.request
 import winsound
 
 import addonHandler
 import wx
 from logHandler import log
 
-from .apiclient import APIConnectionError, APIStatusError
+from .apiclient import APIConnectionError, APIStatusError, mistral_api_request
 from .conversations import ConversationFormat
 from .consts import (
 	Provider,
@@ -206,15 +204,16 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 		out_path = None
 		try:
 			self.configure_client(acc_id)
+			# Mistral takes voice_id (no voice field): https://docs.mistral.ai/api/endpoint/audio/speech
 			resp = self.client.audio.speech.create(
 				model=model,
-				voice=voice_id or "",
 				voice_id=voice_id or None,
 				input=text,
 				response_format=fmt,
 				ref_audio=ref_b64,
 			)
-			ext = ".wav" if fmt == "pcm" else f".{fmt}"
+			# Raw PCM has no header and Mistral does not document its sample rate.
+			ext = f".{fmt}"
 			out_path = build_media_path("audio", ext, prefix="voxtral_tts")
 			resp.stream_to_file(out_path)
 			out_path = persist_local_file(out_path, "audio", prefix="voxtral_tts", fallback_ext=ext)
@@ -330,18 +329,7 @@ class VoxtralTTSToolDialog(ToolDialogBase):
 		labels = []
 		label_to_id = {}
 		try:
-			url = "https://api.mistral.ai/v1/audio/voices?limit=100"
-			req = urllib.request.Request(
-				url,
-				headers={
-					"Authorization": f"Bearer {api_key}",
-					"x-api-key": api_key,
-					"Content-Type": "application/json",
-				},
-				method="GET",
-			)
-			with urllib.request.urlopen(req, timeout=30) as resp:
-				data = json.loads(resp.read().decode("utf-8", errors="replace"))
+			data = mistral_api_request(api_key, "audio/voices?limit=100", timeout=30)
 			items = []
 			if isinstance(data, dict):
 				raw = data.get("items")
