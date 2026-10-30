@@ -347,6 +347,9 @@ def _anthropic_text_block(text: str) -> dict:
 
 
 def _anthropic_image_block_from_data_url(url: str) -> Optional[dict]:
+	if url.startswith(("http://", "https://")):
+		# https://platform.claude.com/docs/en/build-with-claude/vision (URL image source)
+		return {"type": "image", "source": {"type": "url", "url": url}}
 	if not url.startswith("data:"):
 		return None
 	try:

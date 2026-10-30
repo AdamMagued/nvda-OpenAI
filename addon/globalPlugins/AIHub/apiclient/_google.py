@@ -11,6 +11,7 @@ Official references:
 from __future__ import annotations
 
 import base64
+import mimetypes
 import urllib.parse
 from typing import Any, Optional
 
@@ -61,6 +62,14 @@ def _gemini_text_part(text: str) -> dict[str, str]:
 	return {"text": text}
 
 
+def _gemini_file_uri_part(url: str, default_mime: str, filename: str = "") -> dict[str, Any]:
+	"""Public http(s) file fetched by Gemini (up to 15 MB):
+	https://ai.google.dev/gemini-api/docs/file-input-methods
+	"""
+	mime = mimetypes.guess_type(filename or urllib.parse.urlparse(url).path)[0] or default_mime
+	return {"file_data": {"mime_type": mime, "file_uri": url}}
+
+
 def _gemini_inline_data_part(mime_type: str, data_b64: str) -> dict[str, Any]:
 	return {"inline_data": {"mime_type": mime_type, "data": data_b64}}
 
@@ -70,6 +79,8 @@ def _gemini_part_from_image_url(part: dict) -> Optional[dict]:
 	url = (img.get("url") or "").strip()
 	if not url:
 		return None
+	if url.startswith(("http://", "https://")):
+		return _gemini_file_uri_part(url, "image/jpeg")
 	raw, mime = _decode_data_url_to_bytes(url)
 	if raw is None:
 		return None
@@ -105,12 +116,8 @@ def _gemini_part_from_input_file(part: dict) -> Optional[dict]:
 			return _gemini_text_part(f"[{label}]\n{text}")
 		return _gemini_inline_data_part(mime, base64.b64encode(raw).decode("ascii"))
 	file_url = part.get("file_url")
-	if isinstance(file_url, str) and file_url.strip().startswith("http"):
-		# Native generateContent expects inline bytes; remote URLs are out of scope here.
-		raise APIError(
-			f"Gemini generateContent does not support remote file URLs ('{filename or file_url}'). "
-			"Attach a local file instead."
-		)
+	if isinstance(file_url, str) and file_url.strip().startswith(("http://", "https://")):
+		return _gemini_file_uri_part(file_url.strip(), "application/pdf", filename)
 	return None
 
 
