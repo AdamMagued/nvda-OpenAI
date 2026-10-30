@@ -131,6 +131,12 @@ def _normalize_usage(usage: Any) -> dict:
 	)
 	input_tokens = _first_int(usage, "input_tokens", "input_token_count") or prompt_tokens
 	output_tokens = _first_int(usage, "output_tokens", "output_token_count") or completion_tokens
+	# Gemini reports thinking separately from candidatesTokenCount but bills it as
+	# output: https://ai.google.dev/gemini-api/docs/thinking
+	gemini_thoughts = _first_int(usage, "thoughtsTokenCount", "thoughts_token_count")
+	if gemini_thoughts and not _first_int(usage, "output_tokens", "output_token_count"):
+		output_tokens += gemini_thoughts
+		completion_tokens += gemini_thoughts
 
 	reasoning_tokens = (
 		_to_int(usage.get("reasoning_tokens"))
@@ -138,6 +144,7 @@ def _normalize_usage(usage: Any) -> dict:
 		or _to_int(output_tokens_details.get("reasoning_tokens"))
 		or _to_int(output_tokens_details.get("thinking_tokens"))
 		or _to_int(usage.get("thinking_tokens"))
+		or gemini_thoughts
 	)
 
 	cache_creation = usage.get("cache_creation") if isinstance(usage.get("cache_creation"), dict) else {}
@@ -162,6 +169,23 @@ def _normalize_usage(usage: Any) -> dict:
 		or _to_int(prompt_tokens_details.get("cache_write_tokens"))
 		or _to_int(input_tokens_details.get("cache_write_tokens"))
 		or _to_int(usage.get("cache_write_tokens"))
+	)
+
+	cache_creation_1h_input_tokens = _to_int(cache_creation.get("ephemeral_1h_input_tokens"))
+	output_image_tokens = (
+		_to_int(completion_tokens_details.get("image_tokens"))
+		or _to_int(output_tokens_details.get("image_tokens"))
+		or _sum_modality_token_counts(
+			[
+				d for d in (usage.get("candidatesTokensDetails") or usage.get("candidates_tokens_details") or [])
+				if isinstance(d, dict) and str(d.get("modality", "")).upper() == "IMAGE"
+			]
+		)
+	)
+	server_tool_use = usage.get("server_tool_use") if isinstance(usage.get("server_tool_use"), dict) else {}
+	# Anthropic server web search: https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+	web_search_requests = _to_int(server_tool_use.get("web_search_requests")) or _to_int(
+		usage.get("web_search_requests")
 	)
 
 	# Anthropic reports cache read/write disjoint from input_tokens (the uncached
@@ -201,14 +225,54 @@ def _normalize_usage(usage: Any) -> dict:
 		"input_audio_tokens": input_audio_tokens,
 		"output_audio_tokens": output_audio_tokens,
 	}
+	# Pricing-only counters: kept out of the base shape when zero.
+	for key, value in (
+		("cache_creation_1h_input_tokens", cache_creation_1h_input_tokens),
+		("output_image_tokens", output_image_tokens),
+		("web_search_requests", web_search_requests),
+	):
+		if value:
+			normalized[key] = value
 	cost = usage.get("cost")
 	if isinstance(cost, (int, float)):
 		normalized["cost"] = float(cost)
 	return normalized
 
 
+def count_payload_web_searches(payload: Any) -> int:
+	"""Web searches recorded outside ``usage``.
+
+	OpenAI Responses lists one ``web_search_call`` output item per search;
+	Gemini lists the grounding queries it ran in ``groundingMetadata``.
+	"""
+	if not isinstance(payload, dict):
+		return 0
+	root = payload.get("response") if isinstance(payload.get("response"), dict) else payload
+	count = 0
+	for item in root.get("output") or []:
+		if isinstance(item, dict) and item.get("type") == "web_search_call":
+			count += 1
+	for candidate in root.get("candidates") or []:
+		if not isinstance(candidate, dict):
+			continue
+		meta = candidate.get("groundingMetadata") or candidate.get("grounding_metadata")
+		if isinstance(meta, dict):
+			queries = meta.get("webSearchQueries") or meta.get("web_search_queries")
+			if isinstance(queries, list):
+				count += len(queries)
+	return count
+
+
 def _normalize_usage_from_payload(payload: Any) -> dict:
 	"""Try the standard ``usage`` field first, then fall back to provider-specific shapes."""
+	usage = _normalize_usage_from_payload_inner(payload)
+	searches = count_payload_web_searches(payload)
+	if usage and searches and not usage.get("web_search_requests"):
+		usage["web_search_requests"] = searches
+	return usage
+
+
+def _normalize_usage_from_payload_inner(payload: Any) -> dict:
 	if not isinstance(payload, dict):
 		return {}
 	usage = _normalize_usage(payload.get("usage"))

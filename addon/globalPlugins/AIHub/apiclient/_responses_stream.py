@@ -34,7 +34,7 @@ from ._think_tags import (
 	_split_ollama_think_inline,
 )
 from ._types import StreamEvent, build_stream_event
-from ._usage import _normalize_usage
+from ._usage import _normalize_usage, count_payload_web_searches
 
 _REASONING_DELTA_EVENTS = frozenset({
 	"response.reasoning_summary_text.delta",
@@ -255,6 +255,9 @@ class _ResponsesStreamParser:
 	def _on_completed(self, data: dict) -> list[StreamEvent]:
 		usage = _normalize_usage(_responses_resp_completed_usage(data))
 		resp_obj = data.get("response") if isinstance(data.get("response"), dict) else {}
+		searches = count_payload_web_searches(resp_obj)
+		if usage and searches and not usage.get("web_search_requests"):
+			usage["web_search_requests"] = searches
 		response_id = ""
 		rid = resp_obj.get("id")
 		if isinstance(rid, str) and rid.strip():
