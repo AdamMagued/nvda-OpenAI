@@ -85,10 +85,19 @@ def ollama_reasoning_always_on(model_id: str) -> bool:
 
 def openai_reasoning_model(model_id: str) -> bool:
 	mid = _mid(model_id)
-	for prefix in ("o1", "o3", "o4", "gpt-5", "gpt-oss"):
+	for prefix in ("o1", "o3", "o4", "gpt-5", "gpt-6", "gpt-oss"):
 		if mid.startswith(prefix) or f"/{prefix}" in mid:
 			return True
 	return False
+
+
+def openai_reasoning_mandatory(model_id: str) -> bool:
+	"""GPT-6 Astra and GPT-6.1 Sol reject ``reasoning_effort: none``.
+
+	https://developers.openai.com/api/docs/guides/reasoning
+	"""
+	mid = _mid(model_id)
+	return "gpt-6-astra" in mid or "gpt-6.1-sol" in mid
 
 
 def openai_fallback_efforts(model_id: str) -> tuple[str, ...]:
@@ -98,9 +107,10 @@ def openai_fallback_efforts(model_id: str) -> tuple[str, ...]:
 	https://developers.openai.com/api/docs/models/gpt-5.4
 	https://developers.openai.com/api/docs/models/gpt-5.5
 	https://developers.openai.com/api/docs/models/gpt-5.6-sol
+	https://developers.openai.com/api/docs/models/gpt-6.1-sol
 	"""
 	mid = _mid(model_id)
-	if "gpt-5.6" in mid:
+	if "gpt-6" in mid or "gpt-5.6" in mid:
 		return (
 			ReasoningEffort.LOW.value,
 			ReasoningEffort.MEDIUM.value,
@@ -135,7 +145,7 @@ def openai_default_effort(model_id: str) -> str | None:
 	mid = _mid(model_id)
 	if "gpt-5.4" in mid:
 		return None
-	if "gpt-5.6" in mid or "gpt-5.5" in mid or "gpt-5" in mid:
+	if "gpt-6" in mid or "gpt-5" in mid:
 		return ReasoningEffort.MEDIUM.value
 	if openai_reasoning_model(mid):
 		return ReasoningEffort.MEDIUM.value
@@ -221,6 +231,8 @@ def detect_reasoning_mandatory(provider: str, model_id: str, extra_info: dict) -
 		return deepseek_reasoning_mandatory(model_id)
 	if provider == Provider.Ollama:
 		return ollama_reasoning_always_on(model_id)
+	if provider in (Provider.OpenAI, Provider.CustomOpenAI):
+		return openai_reasoning_mandatory(model_id)
 	return False
 
 
