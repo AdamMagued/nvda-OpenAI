@@ -51,6 +51,21 @@ _PROFILE_DEFAULTS: Dict[str, object] = {
 
 # (match substring, profile overrides) — first match wins.
 _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
+	# Claude Opus 5.5: thinking is always on (``disabled`` and budgets return 400);
+	# effort is the only control. https://platform.claude.com/docs/en/build-with-claude/effort
+	(
+		"claude-opus-5-5",
+		{
+			"adaptive_only": True,
+			"adaptive_supported": True,
+			"reasoning_always_on": True,
+			"effort_supported": True,
+			"effort_levels": _EFFORT_WITH_XHIGH,
+			"thinking_default_on": True,
+			"thinking_display_omitted_default": True,
+			"fixed_sampling": True,
+		},
+	),
 	(
 		"claude-opus-5",
 		{
@@ -146,6 +161,20 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 		},
 	),
 	("claude-sonnet-5", dict(_SONNET_5_PROFILE)),
+	# Claude Haiku 5.5: adaptive only (``budget_tokens`` returns 400), thinking on by
+	# default, non-default sampling values rejected.
+	(
+		"claude-haiku-5",
+		{
+			"adaptive_only": True,
+			"adaptive_supported": True,
+			"effort_supported": True,
+			"effort_levels": _EFFORT_WITH_XHIGH,
+			"thinking_default_on": True,
+			"thinking_display_omitted_default": True,
+			"fixed_sampling": True,
+		},
+	),
 	(
 		"claude-opus-4-6",
 		{
@@ -216,6 +245,26 @@ def anthropic_fixed_sampling_model(model_id: str) -> bool:
 	Sonnet 5 and Opus 4.7+ per official docs; also Fable/Mythos adaptive-only models.
 	"""
 	return bool(get_anthropic_thinking_profile(model_id).get("fixed_sampling"))
+
+
+# Models that accept the dynamic-filtering web search tool; older ones keep the basic variant.
+# https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+_WEB_SEARCH_DYNAMIC_MATCHES = (
+	"claude-opus-5",
+	"claude-opus-4-8",
+	"claude-opus-4-7",
+	"claude-opus-4-6",
+	"claude-sonnet-5",
+	"claude-sonnet-4-6",
+)
+
+
+def anthropic_web_search_tool(model_id: str) -> Dict[str, str]:
+	"""Return the server web search tool definition suited to *model_id*."""
+	mid = (model_id or "").lower()
+	if any(match in mid for match in _WEB_SEARCH_DYNAMIC_MATCHES):
+		return {"type": "web_search_20260209", "name": "web_search"}
+	return {"type": "web_search_20250305", "name": "web_search"}
 
 
 def anthropic_use_adaptive_thinking(model_id: str, *, adaptive_thinking: bool | None) -> bool:

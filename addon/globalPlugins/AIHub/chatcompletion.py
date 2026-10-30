@@ -791,6 +791,11 @@ class CompletionThread(threading.Thread):
 					reasoning_body["max_tokens"] = int(thinkingBudget)
 		if maxTokens > 0:
 			params["max_completion_tokens" if useReasoning else "max_tokens"] = maxTokens
+		elif provider == Provider.Anthropic and getattr(model, "maxOutputToken", 0) > 0:
+			# max_tokens is required by the Messages API and thinking counts toward it,
+			# so a small fixed default truncates replies. Streaming avoids HTTP timeouts
+			# on larger values.
+			params["max_tokens"] = min(model.maxOutputToken, 64000 if stream else 16000)
 		_apply_web_search_settings(params, model, wnd, provider)
 		_apply_x_search_settings(params, model, wnd, provider)
 		_apply_code_interpreter_settings(params, model, wnd, provider)

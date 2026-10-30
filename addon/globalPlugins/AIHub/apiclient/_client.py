@@ -18,6 +18,7 @@ from typing import Any, BinaryIO, Generator, Optional
 from .. import apikeymanager
 from ..anthropicthinking import (
 	anthropic_fixed_sampling_model,
+	anthropic_web_search_tool,
 	anthropic_reasoning_always_on,
 	anthropic_use_adaptive_thinking,
 	get_anthropic_thinking_profile,
@@ -362,7 +363,8 @@ class OpenAIClient:
 		if stream:
 			resp = _open_streaming(self._opener, req, timeout=120)
 			return stream_anthropic(resp)
-		data_dict = _open_json(self._opener, req, timeout=120)
+		# Non-streaming replies with thinking can take minutes (SDK default: 10 min).
+		data_dict = _open_json(self._opener, req, timeout=600)
 		return parse_anthropic(data_dict)
 
 	def _build_anthropic_body(
@@ -397,9 +399,8 @@ class OpenAIClient:
 		if stop_seq:
 			body["stop_sequences"] = stop_seq
 		_apply_anthropic_thinking(body, model, kwargs)
-		# Web search tool — web_search_20250305 is GA on all supported models.
 		if kwargs.get("web_search_options") is not None:
-			body["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+			body["tools"] = [anthropic_web_search_tool(model)]
 		cache_control = kwargs.get("cache_control")
 		if isinstance(cache_control, dict) and cache_control:
 			body["cache_control"] = cache_control
