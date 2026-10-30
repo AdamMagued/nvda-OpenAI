@@ -25,162 +25,97 @@ sys.dont_write_bytecode = True
 import buildVars  # NOQA: E402
 
 
-def _extract_wheel_to_dir(wheel_path, destination):
-	if os.path.isdir(destination):
-		shutil.rmtree(destination)
-	os.makedirs(destination, exist_ok=True)
-	with zipfile.ZipFile(wheel_path, "r") as wheel_zip:
-		wheel_zip.extractall(destination)
+# Third-party packages vendored into addon/globalPlugins/AIHub/libs.
+# Bump a version here: the next build replaces the outdated copy.
+_LIBS_BASE = os.path.join("addon", "globalPlugins", "AIHub", "libs")
+PILLOW_VERSION = "13.0.0"
+MARKDOWN_IT_VERSION = "4.2.0"
+MDURL_VERSION = "0.1.2"
+# (distribution, version, target folder, (pip platform, python version) for binary wheels)
+# Pillow ships one build per NVDA runtime: Python 3.11 32-bit (NVDA 2025 and
+# earlier) and Python 3.13 64-bit (NVDA 2026.1+), matching consts.ADDON_LIBS_DIR.
+_VENDORED_WHEELS = (
+	("markdown-it-py", MARKDOWN_IT_VERSION, _LIBS_BASE, None),
+	("mdurl", MDURL_VERSION, _LIBS_BASE, None),
+	("pillow", PILLOW_VERSION, os.path.join(_LIBS_BASE, "lib_py3.11_win32"), ("win32", "3.11")),
+	("pillow", PILLOW_VERSION, os.path.join(_LIBS_BASE, "lib_py3.13"), ("win_amd64", "3.13")),
+)
 
 
-def _extract_single_file_from_wheel(wheel_path, member_name, destination_path):
-	with zipfile.ZipFile(wheel_path, "r") as wheel_zip:
-		wheel_members = wheel_zip.namelist()
-		if member_name not in wheel_members:
-			raise RuntimeError(f"{member_name} not found in wheel {os.path.basename(wheel_path)}")
-		with wheel_zip.open(member_name) as src, open(destination_path, "wb") as dest:
-			dest.write(src.read())
+def _dist_prefix(dist):
+	"""Wheel/dist-info file name prefix of a distribution (PEP 427 escaping)."""
+	return dist.replace("-", "_").lower()
 
 
-def _ensure_pillow_libs():
-	"""Download prebuilt Pillow wheels into addon/globalPlugins/AIHub/libs when missing."""
-	libs_base = os.path.join("addon", "globalPlugins", "AIHub", "libs")
-	pillow_version = "12.1.1"
-	required_layouts = (
-		{
-			"folder": os.path.join(libs_base, "lib_py3.11_win32"),
-			"platform": "win32",
-			"python_version": "3.11",
-			"abi": "cp311",
-		},
-		{
-			"folder": os.path.join(libs_base, "lib_py3.13"),
-			"platform": "win_amd64",
-			"python_version": "3.13",
-			"abi": "cp313",
-		},
-	)
-	missing = [entry for entry in required_layouts if not os.path.isdir(entry["folder"])]
-	if not missing:
+def _installed_dist_infos(folder, dist):
+	if not os.path.isdir(folder):
+		return []
+	prefix = _dist_prefix(dist) + "-"
+	return [
+		name for name in os.listdir(folder)
+		if name.lower().startswith(prefix) and name.endswith(".dist-info")
+	]
+
+
+def _remove_installed(folder, dist):
+	"""Delete every installed version of ``dist`` in ``folder``, using its RECORD."""
+	for info in _installed_dist_infos(folder, dist):
+		top_levels = {info}
+		record = os.path.join(folder, info, "RECORD")
+		if os.path.isfile(record):
+			with open(record, encoding="utf-8") as f:
+				for line in f:
+					path = line.split(",", 1)[0].strip()
+					if path and not path.startswith(("/", "..")):
+						top_levels.add(path.replace("\\", "/").split("/", 1)[0])
+		for name in top_levels:
+			target = os.path.join(folder, name)
+			if os.path.isdir(target):
+				shutil.rmtree(target)
+			elif os.path.isfile(target):
+				os.remove(target)
+
+
+def _ensure_vendored_wheel(dist, version, folder, binary_target):
+	"""Install ``dist==version`` into ``folder`` unless that exact version is already there."""
+	wanted = f"{_dist_prefix(dist)}-{version}.dist-info"
+	installed = _installed_dist_infos(folder, dist)
+	if len(installed) == 1 and installed[0].lower() == wanted:
 		return
-	print("Some vendored libs are missing. Downloading pinned Pillow wheels...")
+	if installed:
+		print(f"Updating vendored {dist} in {folder}: {', '.join(installed)} -> {version}")
+		_remove_installed(folder, dist)
+	else:
+		print(f"Downloading vendored {dist} {version} into {folder}")
+	os.makedirs(folder, exist_ok=True)
 	with tempfile.TemporaryDirectory(prefix="nvda-openai-libs-") as wheel_dir:
-		for entry in missing:
-			print(f"Preparing {entry['folder']}")
-			download_cmd = [
-				sys.executable,
-				"-m",
-				"pip",
-				"download",
-				f"pillow=={pillow_version}",
-				"--dest",
-				wheel_dir,
-				"--only-binary",
-				":all:",
-				"--implementation",
-				"cp",
-				"--python-version",
-				entry["python_version"],
-				"--abi",
-				entry["abi"],
-				"--platform",
-				entry["platform"],
+		download_cmd = [
+			sys.executable, "-m", "pip", "download", f"{dist}=={version}",
+			"--dest", wheel_dir, "--only-binary", ":all:", "--no-deps",
+		]
+		if binary_target:
+			platform, python_version = binary_target
+			abi = "cp" + python_version.replace(".", "")
+			download_cmd += [
+				"--implementation", "cp", "--python-version", python_version,
+				"--abi", abi, "--platform", platform,
 			]
-			try:
-				subprocess.run(download_cmd, check=True)
-			except subprocess.CalledProcessError as err:
-				raise RuntimeError(
-					f"Could not download Pillow {pillow_version} for {entry['folder']} "
-					f"(platform={entry['platform']}, python={entry['python_version']})."
-				) from err
-			wheel_name = f"pillow-{pillow_version}-{entry['abi']}-{entry['abi']}-{entry['platform']}.whl"
-			wheel_path = os.path.join(wheel_dir, wheel_name)
-			if not os.path.isfile(wheel_path):
-				raise RuntimeError(
-					f"Downloaded wheel not found: {wheel_name}. "
-					"Check pip output and wheel naming constraints."
-				)
-			_extract_wheel_to_dir(wheel_path, entry["folder"])
-
-
-def _ensure_markdown_it_libs():
-	"""Download markdown-it-py (+ deps) into addon/globalPlugins/AIHub/libs when missing."""
-	libs_base = os.path.join("addon", "globalPlugins", "AIHub", "libs")
-	markdown_it_pkg = os.path.join(libs_base, "markdown_it")
-	mdurl_pkg = os.path.join(libs_base, "mdurl")
-	if os.path.isdir(markdown_it_pkg) and os.path.isdir(mdurl_pkg):
-		return
-	os.makedirs(libs_base, exist_ok=True)
-	markdown_it_versions = ("3.0.0", "2.2.0")
-	mdurl_versions = ("0.1.2",)
-	print("markdown-it libraries are missing. Downloading pinned wheels...")
-	with tempfile.TemporaryDirectory(prefix="nvda-openai-markdown-it-") as wheel_dir:
-		last_error = None
-		for markdown_it_version in markdown_it_versions:
-			download_cmd = [
-				sys.executable,
-				"-m",
-				"pip",
-				"download",
-				f"markdown-it-py=={markdown_it_version}",
-				"--dest",
-				wheel_dir,
-				"--only-binary",
-				":all:",
-			]
-			try:
-				subprocess.run(download_cmd, check=True)
-			except subprocess.CalledProcessError as err:
-				last_error = err
-				continue
-			wheel_name = f"markdown_it_py-{markdown_it_version}-py3-none-any.whl"
-			wheel_path = os.path.join(wheel_dir, wheel_name)
-			if not os.path.isfile(wheel_path):
-				last_error = RuntimeError(f"Downloaded wheel not found: {wheel_name}.")
-				continue
-			with zipfile.ZipFile(wheel_path, "r") as wheel_zip:
-				wheel_zip.extractall(libs_base)
-			print(f"Using markdown-it-py {markdown_it_version}")
-			break
-		else:
+		try:
+			subprocess.run(download_cmd, check=True)
+		except subprocess.CalledProcessError as err:
 			raise RuntimeError(
-				f"Could not download markdown-it-py from pinned versions {markdown_it_versions}. "
-				"Check network/index accessibility or adjust allowed versions."
-			) from last_error
-		for mdurl_version in mdurl_versions:
-			download_cmd = [
-				sys.executable,
-				"-m",
-				"pip",
-				"download",
-				f"mdurl=={mdurl_version}",
-				"--dest",
-				wheel_dir,
-				"--only-binary",
-				":all:",
-			]
-			try:
-				subprocess.run(download_cmd, check=True)
-			except subprocess.CalledProcessError as err:
-				last_error = err
-				continue
-			wheel_name = f"mdurl-{mdurl_version}-py3-none-any.whl"
-			wheel_path = os.path.join(wheel_dir, wheel_name)
-			if not os.path.isfile(wheel_path):
-				last_error = RuntimeError(f"Downloaded wheel not found: {wheel_name}.")
-				continue
-			with zipfile.ZipFile(wheel_path, "r") as wheel_zip:
-				wheel_zip.extractall(libs_base)
-			print(f"Using mdurl {mdurl_version}")
-			return
-		raise RuntimeError(
-			f"Could not download mdurl from pinned versions {mdurl_versions}. "
-			"Check network/index accessibility or adjust allowed versions."
-		) from last_error
+				f"Could not download {dist} {version} for {folder}. Check network access to PyPI."
+			) from err
+		prefix = f"{_dist_prefix(dist)}-{version}-"
+		wheels = [name for name in os.listdir(wheel_dir) if name.lower().startswith(prefix) and name.endswith(".whl")]
+		if len(wheels) != 1:
+			raise RuntimeError(f"Expected one {dist} {version} wheel, found: {wheels or 'none'}.")
+		with zipfile.ZipFile(os.path.join(wheel_dir, wheels[0]), "r") as wheel_zip:
+			wheel_zip.extractall(folder)
 
 
-_ensure_markdown_it_libs()
-_ensure_pillow_libs()
+for _vendored in _VENDORED_WHEELS:
+	_ensure_vendored_wheel(*_vendored)
 
 
 def md2html(source, dest):
