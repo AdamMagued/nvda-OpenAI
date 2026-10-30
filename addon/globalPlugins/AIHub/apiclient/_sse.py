@@ -56,6 +56,11 @@ def iter_sse_data_blocks(resp) -> Iterator[bytes]:
 			if value.startswith(b" "):
 				value = value[1:]
 			current.append(value)
+	# A last line without a line terminator is still part of the final event.
+	if buf:
+		field, _, value = buf.partition(b":")
+		if field == b"data":
+			current.append(value[1:] if value.startswith(b" ") else value)
 	# Yield any final event that wasn't terminated by a blank line.
 	if current:
 		yield b"\n".join(current)
