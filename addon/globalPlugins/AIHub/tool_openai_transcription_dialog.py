@@ -34,6 +34,11 @@ def _split_csv(text: str) -> list[str]:
 	return [item.strip() for item in text.split(",") if item.strip()]
 
 
+def _uses_language_list(model: str) -> bool:
+	mid = (model or "").lower()
+	return mid.startswith("gpt-transcribe")
+
+
 class OpenAITranscriptionToolDialog(ToolDialogBase):
 	SUGGESTED_MODELS = (
 		"gpt-transcribe",
@@ -110,8 +115,12 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 			self.formPanel, main, _("&Model:"), lambda: wx.ComboBox(self.formPanel, choices=list(self.SUGGESTED_MODELS), style=wx.CB_DROPDOWN, value=self.SUGGESTED_MODELS[0])
 		)
 		self.languageText = add_labeled_factory(
-			# Translators: Label before the optional ISO-639-1 language hint used for transcription (not for translation task).
-			self.formPanel, main, _("&Language (ISO-639-1, optional):"), lambda: wx.TextCtrl(self.formPanel, value="")
+			# Translators: Label before the optional language hint(s) used for transcription (not for translation task); gpt-transcribe accepts several comma-separated codes.
+			self.formPanel, main, _("&Language codes (comma-separated, optional):"), lambda: wx.TextCtrl(self.formPanel, value="")
+		)
+		self.keywordsText = add_labeled_factory(
+			# Translators: Label before the optional comma-separated keyword hints (names, product codes...) for gpt-transcribe.
+			self.formPanel, main, _("&Keywords (comma-separated, optional):"), lambda: wx.TextCtrl(self.formPanel, value="")
 		)
 		self.promptText = add_labeled_factory(
 			# Translators: Label before the optional vocabulary or style hint multiline field passed to the transcription API.
@@ -179,6 +188,7 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 			self.inputAudioPathText,
 			self.modelChoice,
 			self.languageText,
+			self.keywordsText,
 			self.promptText,
 			self.responseFormatChoice,
 			self.temperatureText,
@@ -217,12 +227,20 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 			self.inputAudioPathText.SetValue(dlg.GetPath())
 			self._syncOpenButtons()
 
-	def _build_request_kwargs(self):
+	def _build_request_kwargs(self, model=""):
 		kwargs = {}
 		task = self._getTaskValue()
-		lang = self.languageText.GetValue().strip()
-		if lang and task == "transcription":
-			kwargs["language"] = lang
+		languages = _split_csv(self.languageText.GetValue().strip())
+		if languages and task == "transcription":
+			# gpt-transcribe replaces ``language`` with ``languages[]``; older models take one code.
+			# https://developers.openai.com/api/docs/guides/speech-to-text
+			if _uses_language_list(model):
+				kwargs["languages[]"] = languages
+			else:
+				kwargs["language"] = languages[0]
+		keywords = _split_csv(self.keywordsText.GetValue().strip())
+		if keywords and task == "transcription":
+			kwargs["keywords[]"] = keywords
 		prompt = self.promptText.GetValue().strip()
 		if prompt:
 			kwargs["prompt"] = prompt
@@ -242,7 +260,9 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		if include:
 			kwargs["include[]"] = include
 		chunking = self.chunkingStrategyText.GetValue().strip()
-		if chunking:
+		if chunking == "auto":
+			kwargs["chunking_strategy"] = chunking
+		elif chunking:
 			try:
 				kwargs["chunking_strategy"] = json.loads(chunking)
 			except Exception:
@@ -390,7 +410,8 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 				"task": task,
 				"input_audio_path": file_path,
 				"model": model,
-				"language": kwargs.get("language", ""),
+				"language": self.languageText.GetValue().strip(),
+				"keywords": self.keywordsText.GetValue().strip(),
 				"prompt": kwargs.get("prompt", ""),
 				"response_format": response_format,
 				"temperature": kwargs.get("temperature", ""),
@@ -407,6 +428,7 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 	def _refreshTaskDependentControls(self):
 		is_translation = self._getTaskValue() == "translation"
 		self.languageText.Enable(not is_translation)
+		self.keywordsText.Enable(not is_translation)
 		self.timestampGranularitiesText.Enable(not is_translation)
 		self.includeText.Enable(not is_translation)
 		self.chunkingStrategyText.Enable(not is_translation)
@@ -434,6 +456,7 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		self.inputAudioPathText.SetValue(fd.get("input_audio_path", ""))
 		self.modelChoice.SetValue(fd.get("model", self.modelChoice.GetValue()))
 		self.languageText.SetValue(fd.get("language", ""))
+		self.keywordsText.SetValue(fd.get("keywords", ""))
 		self.promptText.SetValue(fd.get("prompt", ""))
 		fmt = fd.get("response_format", "")
 		if isinstance(fmt, str) and fmt:
@@ -491,7 +514,7 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		response_format = self.responseFormatChoice.GetStringSelection() or "json"
 		task = self._getTaskValue()
 		try:
-			kwargs = self._build_request_kwargs()
+			kwargs = self._build_request_kwargs(model)
 		except ValueError as err:
 			wx.MessageBox(str(err), "OpenAI", wx.OK | wx.ICON_ERROR)
 			return
