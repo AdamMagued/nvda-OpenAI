@@ -5,7 +5,7 @@ Each parser turns the provider's JSON response shape into a uniform
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ..consts import Provider
 from ._think_tags import (
@@ -71,7 +71,7 @@ def _parse_chat_choice(choice: Any, index: int, provider: str) -> Choice:
 		message = ChoiceMessage(content, audio=audio, reasoning=reasoning)
 	else:
 		message = ChoiceMessage(content, reasoning=reasoning)
-	return Choice(message, index=index)
+	return Choice(message, index=index, finish_reason=choice.get("finish_reason"))
 
 
 def _first_reasoning(container: Any) -> str:
@@ -205,7 +205,7 @@ def parse_responses(data: dict, provider: str = "") -> ChatCompletion:
 		response_id, citations = _extract_responses_metadata(data)
 		encrypted_reasoning = _extract_responses_encrypted_reasoning(data)
 		return ChatCompletion(
-			[Choice(ChoiceMessage(content=text, reasoning=reasoning))],
+			[Choice(ChoiceMessage(content=text, reasoning=reasoning), finish_reason=responses_finish_reason(data))],
 			usage=_normalize_usage_from_payload(data),
 			response_id=response_id,
 			citations=citations,
@@ -254,7 +254,7 @@ def parse_responses(data: dict, provider: str = "") -> ChatCompletion:
 	encrypted_reasoning = _extract_responses_encrypted_reasoning(data)
 
 	return ChatCompletion(
-		[Choice(ChoiceMessage(content=text, reasoning=reasoning))],
+		[Choice(ChoiceMessage(content=text, reasoning=reasoning), finish_reason=responses_finish_reason(data))],
 		usage=_normalize_usage_from_payload(data),
 		response_id=response_id,
 		citations=citations,
@@ -360,7 +360,7 @@ def parse_anthropic(data: dict) -> ChatCompletion:
 			if part:
 				reasoning = f"{reasoning}\n{part}".strip() if reasoning else part
 	return ChatCompletion(
-		[Choice(ChoiceMessage(text, reasoning=reasoning))],
+		[Choice(ChoiceMessage(text, reasoning=reasoning), finish_reason=data.get("stop_reason"))],
 		usage=_normalize_usage(data.get("usage")),
 	)
 
@@ -436,6 +436,34 @@ def parse_gemini_generate_content(data: dict) -> ChatCompletion:
 	else:
 		message = ChoiceMessage(text, reasoning=reasoning)
 	return ChatCompletion(
-		[Choice(message)],
+		[Choice(message, finish_reason=gemini_finish_reason(data))],
 		usage=_normalize_usage_from_payload(data),
 	)
+
+
+def gemini_finish_reason(data: dict) -> Optional[str]:
+	"""Candidate ``finishReason``, or the ``promptFeedback.blockReason`` of a blocked prompt.
+
+	https://ai.google.dev/api/generate-content#FinishReason
+	"""
+	if not isinstance(data, dict):
+		return None
+	for candidate in data.get("candidates") or []:
+		if isinstance(candidate, dict) and candidate.get("finishReason"):
+			reason = str(candidate["finishReason"]).lower()
+			if reason not in ("finish_reason_unspecified", "unspecified"):
+				return reason
+	feedback = data.get("promptFeedback")
+	if isinstance(feedback, dict) and feedback.get("blockReason"):
+		return str(feedback["blockReason"]).lower()
+	return None
+
+
+def responses_finish_reason(data: dict) -> Optional[str]:
+	"""``incomplete_details.reason`` of an incomplete Responses API result, else ``None``."""
+	root = _responses_payload_root(data if isinstance(data, dict) else {})
+	if root.get("status") != "incomplete":
+		return None
+	details = root.get("incomplete_details")
+	reason = details.get("reason") if isinstance(details, dict) else None
+	return str(reason) if reason else "incomplete"

@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ._parsers import (
+	responses_finish_reason,
 	_extract_responses_citations,
 	_extract_responses_assistant_text,
 	_extract_responses_encrypted_reasoning,
@@ -134,7 +135,7 @@ class _ResponsesStreamParser:
 			return self._on_output_text_done(data)
 		if evt_type == "response.refusal.done":
 			return self._on_refusal_done(data)
-		if evt_type == "response.completed":
+		if evt_type in ("response.completed", "response.incomplete"):
 			return self._on_completed(data)
 		if evt_type in ("response.failed", "error"):
 			return [build_stream_event(finish_reason="error", error=_responses_resp_error_payload(data))]
@@ -280,7 +281,7 @@ class _ResponsesStreamParser:
 					separator="\n",
 				).strip()
 		kwargs = {
-			"finish_reason": "stop",
+			"finish_reason": responses_finish_reason(resp_obj) or "stop",
 			"response_id": response_id,
 			"citations": citations,
 			"encrypted_reasoning": encrypted_reasoning,
@@ -341,7 +342,7 @@ def stream_responses_api(
 				continue
 			for event in parser.feed(evt_type, data):
 				yield event
-			if evt_type in ("response.completed", "response.failed", "error"):
+			if evt_type in ("response.completed", "response.incomplete", "response.failed", "error"):
 				return
 	finally:
 		_responses_safe_close(resp)

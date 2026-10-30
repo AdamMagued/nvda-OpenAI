@@ -84,6 +84,40 @@ _STREAM_USAGE_PROVIDERS = (
 	Provider.Ollama,
 )
 
+# Finish reasons meaning the provider stopped before or instead of answering:
+# Anthropic stop_reason, OpenAI finish_reason / incomplete_details.reason,
+# Gemini finishReason / promptFeedback.blockReason (lower-cased).
+_LENGTH_FINISH_REASONS = frozenset({"length", "max_tokens", "max_output_tokens"})
+_BLOCKED_FINISH_REASONS = frozenset({
+	"refusal",
+	"content_filter",
+	"safety",
+	"recitation",
+	"blocklist",
+	"prohibited_content",
+	"spii",
+	"image_safety",
+	"image_prohibited_content",
+	"image_other",
+	"image_recitation",
+	"no_image",
+	"language",
+	"other",
+})
+
+
+def _empty_response_notice(finish_reason) -> str:
+	"""User-facing explanation when a response ends without text, or ``""``."""
+	reason = str(finish_reason or "").lower()
+	if reason in _LENGTH_FINISH_REASONS:
+		# Translators: Shown as the reply when the model used all output tokens (often on reasoning) before writing any answer.
+		return _("No answer: the output token limit was reached before any text was written. Increase the max tokens or lower the reasoning effort.")
+	if reason in _BLOCKED_FINISH_REASONS:
+		# Translators: Shown as the reply when the provider declined or blocked the response; {reason} is the provider's stop reason (e.g. refusal, safety).
+		return _("No answer: the provider stopped the response ({reason}).").format(reason=reason)
+	return ""
+
+
 # Providers that cap stop sequences at 4 (per OpenAI chat-completions docs);
 # every other provider supports the more generous Anthropic 16-sequence cap.
 _STOP_SEQUENCE_CAP_4_PROVIDERS = (Provider.OpenAI, Provider.CustomOpenAI)
@@ -1008,6 +1042,7 @@ class CompletionThread(threading.Thread):
 					return len(speechBuffer)
 			return 0
 
+		finish_reason = None
 		for event in response:
 			if time.time() - self.lastTime > 4:
 				self.lastTime = int(time.time())
@@ -1041,6 +1076,8 @@ class CompletionThread(threading.Thread):
 			if not choices:
 				continue
 			choice = choices[0]
+			if getattr(choice, "finish_reason", None):
+				finish_reason = choice.finish_reason
 			delta = getattr(choice, "delta", None)
 			reasoning_chunk = getattr(delta, "reasoning", "") if delta else ""
 			content_chunk = getattr(delta, "content", "") if delta else ""
@@ -1084,6 +1121,10 @@ class CompletionThread(threading.Thread):
 			if normalized:
 				block.usage = normalized
 			self._log_usage_debug(debug, "stream final chunk", latest_usage, normalized)
+		notice = "" if (block.responseText or "").strip() else _empty_response_notice(finish_reason)
+		if notice:
+			# The dialog timer renders text appended beyond block.lastLen.
+			block.responseText += notice
 		citations_footer = _format_xai_citations_footer(
 			getattr(block, "citations", None) or [],
 			block.responseText or "",
@@ -1138,6 +1179,16 @@ class CompletionThread(threading.Thread):
 						)
 		else:
 			raise TypeError(f"Invalid response type: {type(response)}")
+		if not text.strip() and not played_audio:
+			finish_reason = next(
+				(
+					c.finish_reason
+					for c in getattr(response, "choices", [response])
+					if getattr(c, "finish_reason", None)
+				),
+				None,
+			)
+			text = _empty_response_notice(finish_reason)
 		citations_footer = _apply_xai_response_metadata(block, response, text)
 		block.responseText += text
 		if citations_footer:

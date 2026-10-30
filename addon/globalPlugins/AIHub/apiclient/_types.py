@@ -48,11 +48,13 @@ class ChoiceMessage:
 class Choice:
 	"""One choice within a non-streaming completion."""
 
-	__slots__ = ("message", "index")
+	__slots__ = ("message", "index", "finish_reason")
 
-	def __init__(self, message: ChoiceMessage, index: int = 0):
+	def __init__(self, message: ChoiceMessage, index: int = 0, finish_reason: Optional[str] = None):
 		self.message = message
 		self.index = index
+		# Provider stop reason, lower-cased (``stop``, ``length``, ``refusal``, ``safety``...).
+		self.finish_reason = str(finish_reason).lower() if finish_reason else None
 
 
 class ChatCompletion:

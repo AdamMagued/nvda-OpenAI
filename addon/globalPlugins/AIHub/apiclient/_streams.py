@@ -236,8 +236,8 @@ def stream_anthropic(resp) -> Iterator[StreamEvent]:
 			if evt_type == "message_delta":
 				usage_acc = _merge_usage(usage_acc, _normalize_usage(data.get("usage")))
 				finish = data.get("delta", {}).get("stop_reason") if isinstance(data.get("delta"), dict) else None
-				if usage_acc:
-					yield build_stream_event(usage=dict(usage_acc), finish_reason=finish or None)
+				if usage_acc or finish:
+					yield build_stream_event(usage=dict(usage_acc) or None, finish_reason=finish or None)
 				continue
 
 			if evt_type == "content_block_delta":
@@ -277,7 +277,7 @@ def stream_anthropic(resp) -> Iterator[StreamEvent]:
 
 def stream_gemini_generate_content(resp) -> Iterator[StreamEvent]:
 	"""Parse a native Gemini ``streamGenerateContent`` SSE stream."""
-	from ._parsers import _gemini_parts_text
+	from ._parsers import _gemini_parts_text, gemini_finish_reason
 
 	latest_usage: dict = {}
 	try:
@@ -292,15 +292,11 @@ def stream_gemini_generate_content(resp) -> Iterator[StreamEvent]:
 			if usage:
 				latest_usage = _merge_usage(latest_usage, usage)
 			content, reasoning = _gemini_parts_text(data)
-			finish = None
-			for candidate in data.get("candidates") or []:
-				if isinstance(candidate, dict) and candidate.get("finishReason"):
-					finish = str(candidate.get("finishReason")).lower()
+			finish = gemini_finish_reason(data)
 			if content or reasoning:
 				yield build_stream_event(content=content, reasoning=reasoning)
-			if finish and finish not in ("unspecified", "unknown"):
-				if latest_usage:
-					yield build_stream_event(usage=dict(latest_usage), finish_reason=finish)
+			if finish and finish != "unknown":
+				yield build_stream_event(usage=dict(latest_usage) or None, finish_reason=finish)
 				return
 	finally:
 		_safe_close(resp)
