@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - run: echo -e "pre-commit\nscons\nmarkdown">requirements.txt
+      - run: echo -e "pre-commit\nscons\nmarkdown\npytest">requirements.txt
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -38,6 +38,9 @@ jobs:
 
       - name: Code checks
         run: export SKIP=no-commit-to-branch; pre-commit run --all
+
+      - name: Unit tests
+        run: python -m pytest -q tests
 
       - name: building addon
         run: scons && scons pot
