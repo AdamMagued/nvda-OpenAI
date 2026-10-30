@@ -326,7 +326,7 @@ class OpenAIClient:
 		"""Upload a local file to OpenAI ``/v1/files`` and return its file id."""
 		if not isinstance(file_path, str) or not file_path or not os.path.exists(file_path):
 			raise APIError(f"Invalid file path: {file_path}")
-		boundary, body, content_type = _build_file_upload_body(file_path, purpose)
+		body, content_type = _build_file_upload_body(file_path, purpose)
 		headers = _build_headers(self.api_key, self.organization)
 		headers["Content-Type"] = content_type
 		req = urllib.request.Request(
@@ -534,57 +534,47 @@ class OpenAIClient:
 # Standalone helper: Mistral Voxtral transcription (uses x-api-key, not Bearer).
 # ---------------------------------------------------------------------------
 
+MISTRAL_API_BASE = "https://api.mistral.ai/v1"
+
+
+def mistral_transcription_request(
+	api_key: str,
+	file_path: str,
+	model: str = "voxtral-mini-latest",
+	base_url: Optional[str] = None,
+	**fields,
+) -> dict:
+	"""POST a file to Mistral ``/audio/transcriptions`` and return the JSON reply.
+
+	``fields`` are optional form fields (language, temperature, diarize,
+	timestamp_granularities, context_bias...):
+	https://docs.mistral.ai/api/endpoint/audio/transcriptions
+	"""
+	if not api_key or not api_key.strip():
+		raise ValueError("Mistral API key is required for transcription")
+	url = (base_url or MISTRAL_API_BASE).rstrip("/") + "/audio/transcriptions"
+	file_name = os.path.basename(file_path) or "audio.wav"
+	with open(file_path, "rb") as f:
+		file_data = f.read()
+	# Skip unset options; keep falsy values such as temperature=0.
+	form = {"model": model}
+	form.update({k: v for k, v in fields.items() if v is not None and v is not False and v != "" and v != []})
+	body, content_type = build_multipart_body(form, [("file", file_name, file_data, _audio_file_mime(file_name))])
+	headers = _build_headers(api_key.strip(), None)
+	headers["Content-Type"] = content_type
+	req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+	return _open_json(_create_opener(), req, timeout=300)
+
+
 def transcribe_audio_mistral(
 	api_key: str,
 	file_path: str,
 	model: str = "voxtral-mini-latest",
 	language: Optional[str] = None,
 ) -> Transcription:
-	"""Transcribe audio via Mistral Voxtral.
-
-	Mistral's transcription endpoint uses ``x-api-key`` auth (not Bearer) and
-	multipart form data per the official documentation, so it cannot reuse the
-	OpenAI-compatible client unchanged.
-	"""
-	if not api_key or not api_key.strip():
-		raise ValueError("Mistral API key is required for transcription")
-	url = "https://api.mistral.ai/v1/audio/transcriptions"
-	boundary = uuid.uuid4().hex
-	with open(file_path, "rb") as f:
-		file_data = f.read()
-	ext = "." + file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ".wav"
-	filename = os.path.basename(file_path) or "audio.wav"
-	mime = _AUDIO_MIME.get(ext, "audio/wav")
-	parts = [
-		(
-			f'--{boundary}\r\n'
-			f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-			f'Content-Type: {mime}\r\n\r\n'
-		).encode("utf-8") + file_data,
-		(
-			f'\r\n--{boundary}\r\n'
-			f'Content-Disposition: form-data; name="model"\r\n\r\n'
-			f'{model}\r\n'
-		).encode("utf-8"),
-	]
-	if language:
-		parts.append(
-			(
-				f'\r\n--{boundary}\r\n'
-				f'Content-Disposition: form-data; name="language"\r\n\r\n'
-				f'{language}\r\n'
-			).encode("utf-8")
-		)
-	parts.append(f'\r\n--{boundary}--\r\n'.encode("utf-8"))
-	body = b"".join(parts)
-	headers = {
-		"x-api-key": api_key.strip(),
-		"Content-Type": f"multipart/form-data; boundary={boundary}",
-	}
-	req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-	opener = _create_opener()
-	data = _open_json(opener, req, timeout=300)
-	return Transcription(data.get("text", ""))
+	"""Transcribe audio via Mistral Voxtral."""
+	data = mistral_transcription_request(api_key, file_path, model, language=language)
+	return Transcription(data.get("text", "") if isinstance(data, dict) else "", payload=data)
 
 
 # ---------------------------------------------------------------------------
@@ -621,39 +611,13 @@ def configure_client_for_provider(
 # Multipart body builders (kept as module-level helpers to keep the client class slim).
 # ---------------------------------------------------------------------------
 
-def _build_file_upload_body(file_path: str, purpose: str) -> tuple[str, bytes, str]:
-	import mimetypes
-	boundary = uuid.uuid4().hex
-	filename = os.path.basename(file_path)
-	for ch in '\r\n"\\':
-		filename = filename.replace(ch, "_")
-	file_mime = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
-	with open(file_path, "rb") as f:
-		file_data = f.read()
-	body = (
-		f'--{boundary}\r\n'
-		f'Content-Disposition: form-data; name="purpose"\r\n\r\n'
-		f'{purpose}\r\n'
-		f'--{boundary}\r\n'
-		f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-		f'Content-Type: {file_mime}\r\n\r\n'
-	).encode("utf-8") + file_data + f"\r\n--{boundary}--\r\n".encode("utf-8")
-	content_type = f"multipart/form-data; boundary={boundary}"
-	return boundary, body, content_type
+def build_multipart_body(fields: dict, files: list) -> tuple[bytes, str]:
+	"""Encode ``fields`` and ``files`` (``(field, file_name, data, mime)`` tuples) as multipart/form-data.
 
-
-def _build_audio_text_body(
-	file: BinaryIO,
-	model: str,
-	response_format: str,
-	extra_fields: dict,
-) -> tuple[bytes, str]:
-	"""Build the multipart body for /audio/transcriptions or /audio/translations."""
+	List values repeat the field; dict values are sent as JSON. Returns
+	``(body, content_type)``.
+	"""
 	boundary = uuid.uuid4().hex
-	file_data = file.read()
-	file_name = os.path.basename(getattr(file, "name", "") or "audio.wav")
-	ext = os.path.splitext(file_name)[1].lower() or ".wav"
-	file_mime = _AUDIO_MIME.get(ext, "audio/wav")
 	parts: list[bytes] = []
 
 	def _add_field(name: str, value: Any) -> None:
@@ -665,6 +629,8 @@ def _build_audio_text_body(
 			return
 		if isinstance(value, dict):
 			value = json.dumps(value, ensure_ascii=False)
+		elif isinstance(value, bool):
+			value = "true" if value else "false"
 		parts.append(
 			(
 				f'--{boundary}\r\n'
@@ -673,18 +639,45 @@ def _build_audio_text_body(
 			).encode("utf-8")
 		)
 
-	_add_field("model", model)
-	_add_field("response_format", response_format)
-	for k, v in extra_fields.items():
-		_add_field(k, v)
-	file_part = (
-		f'--{boundary}\r\n'
-		f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'
-		f'Content-Type: {file_mime}\r\n\r\n'
-	).encode("utf-8") + file_data + b"\r\n"
-	body = b"".join(parts) + file_part + f"--{boundary}--\r\n".encode("utf-8")
-	content_type = f"multipart/form-data; boundary={boundary}"
-	return body, content_type
+	for name, value in fields.items():
+		_add_field(name, value)
+	for file_field, file_name, file_data, file_mime in files:
+		for ch in '\r\n"\\':
+			file_name = file_name.replace(ch, "_")
+		parts.append(
+			(
+				f'--{boundary}\r\n'
+				f'Content-Disposition: form-data; name="{file_field}"; filename="{file_name}"\r\n'
+				f'Content-Type: {file_mime}\r\n\r\n'
+			).encode("utf-8") + file_data + b"\r\n"
+		)
+	body = b"".join(parts) + f"--{boundary}--\r\n".encode("utf-8")
+	return body, f"multipart/form-data; boundary={boundary}"
+
+
+def _build_file_upload_body(file_path: str, purpose: str) -> tuple[bytes, str]:
+	import mimetypes
+	file_mime = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+	with open(file_path, "rb") as f:
+		file_data = f.read()
+	return build_multipart_body({"purpose": purpose}, [("file", os.path.basename(file_path), file_data, file_mime)])
+
+
+def _audio_file_mime(file_name: str) -> str:
+	ext = os.path.splitext(file_name)[1].lower() or ".wav"
+	return _AUDIO_MIME.get(ext, "audio/wav")
+
+
+def _build_audio_text_body(
+	file: BinaryIO,
+	model: str,
+	response_format: str,
+	extra_fields: dict,
+) -> tuple[bytes, str]:
+	"""Build the multipart body for /audio/transcriptions or /audio/translations."""
+	file_name = os.path.basename(getattr(file, "name", "") or "audio.wav")
+	fields = {"model": model, "response_format": response_format, **extra_fields}
+	return build_multipart_body(fields, [("file", file_name, file.read(), _audio_file_mime(file_name))])
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
+
+from .apiclient import build_multipart_body
 
 TEXT_API_BASE_URL = "https://text.external-api.pangram.com"
 FILE_API_BASE_URL = "https://file-external.api.pangram.com"
@@ -251,32 +252,12 @@ def detect_bulk(
 
 
 def _build_multipart(file_paths, fields):
-	boundary = uuid.uuid4().hex
-	parts = []
-	for name, value in fields.items():
-		parts.append(
-			(
-				f"--{boundary}\r\n"
-				f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-				f"{value}\r\n"
-			).encode("utf-8")
-		)
+	files = []
 	for path in file_paths:
-		filename = os.path.basename(path).replace('"', "_")
 		mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
 		with open(path, "rb") as f:
-			content = f.read()
-		parts.append(
-			(
-				f"--{boundary}\r\n"
-				f'Content-Disposition: form-data; name="files"; filename="{filename}"\r\n'
-				f"Content-Type: {mime}\r\n\r\n"
-			).encode("utf-8")
-			+ content
-			+ b"\r\n"
-		)
-	parts.append(f"--{boundary}--\r\n".encode("utf-8"))
-	return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+			files.append(("files", os.path.basename(path), f.read(), mime))
+	return build_multipart_body(fields, files)
 
 
 def detect_files(api_key: str, file_paths: list, public_dashboard_link: bool = False) -> list:

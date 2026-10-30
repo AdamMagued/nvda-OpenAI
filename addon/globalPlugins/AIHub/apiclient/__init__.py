@@ -11,7 +11,7 @@ Public API (used elsewhere in the addon):
   ``StreamChoice`` — non-streaming and streaming response types.
 * ``Transcription`` — return type of audio transcription/translation calls.
 * ``APIError``, ``APIConnectionError``, ``APIStatusError`` — exception hierarchy.
-* ``transcribe_audio_mistral`` — Mistral Voxtral transcription helper.
+* ``transcribe_audio_mistral`` / ``mistral_transcription_request`` — Mistral Voxtral transcription helpers.
 * ``truncate_error_for_user`` — convert an exception to a user-facing message.
 * ``_resolve_error_message`` — extract the human-readable message from an API error body.
 """
@@ -19,7 +19,9 @@ from __future__ import annotations
 
 from ._client import (
 	OpenAIClient,
+	build_multipart_body,
 	configure_client_for_provider,
+	mistral_transcription_request,
 	transcribe_audio_mistral,
 )
 from ._errors import (
@@ -52,7 +54,9 @@ __all__ = [
 	"StreamEvent",
 	"Transcription",
 	"_resolve_error_message",
+	"build_multipart_body",
 	"configure_client_for_provider",
+	"mistral_transcription_request",
 	"transcribe_audio_mistral",
 	"truncate_error_for_user",
 ]

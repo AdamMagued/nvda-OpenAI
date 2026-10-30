@@ -3,16 +3,13 @@
 import json
 import os
 import threading
-import urllib.error
-import urllib.request
-import uuid
 import winsound
 
 import addonHandler
 import wx
 from logHandler import log
 
-from .apiclient import APIConnectionError, APIStatusError, _resolve_error_message
+from .apiclient import APIConnectionError, APIStatusError, mistral_transcription_request
 from .conversations import ConversationFormat
 from .consts import (
 	Provider,
@@ -34,19 +31,6 @@ def _split_csv(text: str) -> list[str]:
 	if not isinstance(text, str):
 		return []
 	return [item.strip() for item in text.split(",") if item.strip()]
-
-
-_AUDIO_MIME = {
-	".wav": "audio/wav",
-	".mp3": "audio/mpeg",
-	".m4a": "audio/mp4",
-	".webm": "audio/webm",
-	".mp4": "audio/mp4",
-	".flac": "audio/flac",
-	".ogg": "audio/ogg",
-	".mpga": "audio/mpeg",
-	".mpeg": "audio/mpeg",
-}
 
 
 class MistralSpeechToTextToolDialog(ToolDialogBase):
@@ -203,50 +187,6 @@ class MistralSpeechToTextToolDialog(ToolDialogBase):
 			self.inputAudioPathText.SetValue(dlg.GetPath())
 			self._syncOpenButtons()
 
-	def _build_multipart_body(self, file_path, model, language, diarize, context_bias, timestamp_granularities, temperature):
-		boundary = uuid.uuid4().hex
-		with open(file_path, "rb") as f:
-			file_data = f.read()
-		filename = os.path.basename(file_path) or "audio.wav"
-		ext = os.path.splitext(filename)[1].lower() or ".wav"
-		mime = _AUDIO_MIME.get(ext, "audio/wav")
-		parts = []
-
-		def _add_field(name: str, value):
-			if value is None:
-				return
-			if isinstance(value, (list, tuple)):
-				for item in value:
-					_add_field(name, item)
-				return
-			parts.append(
-				(
-					f'--{boundary}\r\n'
-					f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-					f'{value}\r\n'
-				).encode("utf-8")
-			)
-
-		_add_field("model", model)
-		if language:
-			_add_field("language", language)
-		if diarize:
-			_add_field("diarize", "true")
-		if context_bias:
-			_add_field("context_bias", context_bias)
-		if timestamp_granularities:
-			_add_field("timestamp_granularities", timestamp_granularities)
-		if temperature is not None:
-			_add_field("temperature", temperature)
-
-		file_part = (
-			f'--{boundary}\r\n'
-			f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-			f"Content-Type: {mime}\r\n\r\n"
-		).encode("utf-8") + file_data + b"\r\n"
-		body = b"".join(parts) + file_part + (f"--{boundary}--\r\n").encode("utf-8")
-		return boundary, body
-
 	def _run_thread(self, account_id, file_path, model, language, diarize, context_bias, timestamp_granularities, temperature):
 		err = None
 		result = {}
@@ -255,42 +195,17 @@ class MistralSpeechToTextToolDialog(ToolDialogBase):
 			if not api_key:
 				# Translators: Error raised before the HTTP request when the chosen Mistral account has no API key.
 				raise ValueError(_("No API key available for the selected Mistral account."))
-			base_url = self.manager.get_base_url(account_id=account_id) or "https://api.mistral.ai/v1"
-			url = base_url.rstrip("/") + "/audio/transcriptions"
-			boundary, body = self._build_multipart_body(
-				file_path=file_path,
-				model=model,
+			result = mistral_transcription_request(
+				api_key,
+				file_path,
+				model,
+				base_url=self.manager.get_base_url(account_id=account_id),
 				language=language,
-				diarize=diarize,
+				diarize=bool(diarize),
 				context_bias=context_bias,
 				timestamp_granularities=timestamp_granularities,
 				temperature=temperature,
 			)
-			headers = {
-				"Authorization": f"Bearer {api_key.strip()}",
-				"x-api-key": api_key.strip(),
-				"Content-Type": f"multipart/form-data; boundary={boundary}",
-			}
-			req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-			with urllib.request.urlopen(req, timeout=300) as resp:
-				if resp.status != 200:
-					text = resp.read().decode("utf-8", errors="replace")
-					raise APIStatusError(
-						_resolve_error_message(text, resp.status),
-						status_code=resp.status,
-						response_body=text,
-					)
-				raw = resp.read().decode("utf-8", errors="replace")
-			result = json.loads(raw) if raw else {}
-		except urllib.error.HTTPError as e:
-			text = e.read().decode("utf-8", errors="replace") if e.fp else ""
-			err = APIStatusError(
-				_resolve_error_message(text, e.code),
-				status_code=e.code,
-				response_body=text,
-			)
-		except (urllib.error.URLError, OSError, ConnectionError) as e:
-			err = APIConnectionError(str(e))
 		except Exception as e:
 			err = e
 		wx.CallAfter(

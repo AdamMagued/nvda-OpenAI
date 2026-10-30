@@ -24,6 +24,7 @@ from keyboardHandler import KeyboardInputGesture
 
 from . import apikeymanager
 from .apiclient import (
+	build_multipart_body,
 	Transcription,
 	transcribe_audio_mistral,
 	configure_client_for_provider,
@@ -377,21 +378,14 @@ class RecordThread(threading.Thread):
 		if not re.match(r"^https?://", host, re.I):
 			host = "http://" + host
 		url = host + "/inference"
-		boundary = uuid.uuid4().hex
 		with open(filename, "rb") as audio_file:
 			file_data = audio_file.read()
-		body = (
-			f'--{boundary}\r\n'.encode()
-			+ f'Content-Disposition: form-data; name="file"; filename="tmp.wav"\r\n'.encode()
-			+ b'Content-Type: audio/wav\r\n\r\n'
-			+ file_data
-			+ f'\r\n--{boundary}\r\n'.encode()
-			+ b'Content-Disposition: form-data; name="temperature"\r\n\r\n0\r\n'
-			+ f'--{boundary}\r\n'.encode()
-			+ b'Content-Disposition: form-data; name="response-format"\r\n\r\njson\r\n'
-			+ f'--{boundary}--\r\n'.encode()
+		# https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md
+		body, content_type = build_multipart_body(
+			{"temperature": 0, "response_format": "json"},
+			[("file", "tmp.wav", file_data, "audio/wav")],
 		)
-		headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+		headers = {"Content-Type": content_type}
 		req = Request(url, body, headers)
 		response = urlopen(req, timeout=3600)
 		if response.getcode() != 200:
