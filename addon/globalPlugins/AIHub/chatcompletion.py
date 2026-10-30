@@ -788,6 +788,9 @@ class CompletionThread(threading.Thread):
 					if not isinstance(reasoning_body, dict):
 						reasoning_body = {"enabled": True}
 						params["reasoning"] = reasoning_body
+					# OpenRouter accepts either effort or max_tokens, not both; the explicit
+					# budget wins. https://openrouter.ai/docs/guides/best-practices/reasoning-tokens
+					reasoning_body.pop("effort", None)
 					reasoning_body["max_tokens"] = int(thinkingBudget)
 		if maxTokens > 0:
 			params["max_completion_tokens" if useReasoning else "max_tokens"] = maxTokens
