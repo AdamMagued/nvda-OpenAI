@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from .consts import AVAILABLE_PROVIDERS, BASE_URLs, CHAT_PROVIDERS, Provider
+from logHandler import log
 
 # Common environment variable names per provider (tried in order; first non-empty wins)
 _ENV_KEYS = {
@@ -33,6 +34,7 @@ def _safe_read_text(path):
 		with open(path, "r", encoding="utf-8", errors="replace") as f:
 			return f.read().strip()
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return ""
 
 
@@ -144,6 +146,7 @@ class APIKeyManager:
 						for provider in AVAILABLE_PROVIDERS:
 							store["providers"][provider] = _normalize_provider_bucket(raw.get(provider, {}), provider)
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				store = _empty_store()
 		for provider in AVAILABLE_PROVIDERS:
 			store["providers"].setdefault(provider, {"active_account_id": None, "accounts": []})

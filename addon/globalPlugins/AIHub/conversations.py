@@ -199,6 +199,7 @@ def _is_under_data_dir(path: str) -> bool:
 		abs_data = os.path.abspath(DATA_DIR)
 		return os.path.commonpath([abs_path, abs_data]) == abs_data
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return False
 
 
@@ -258,6 +259,7 @@ def _collect_file_entries(data: dict) -> list[dict]:
 		try:
 			return int(os.path.getsize(path))
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return None
 
 	def _add(path: str, role: str, kind: str):
@@ -694,6 +696,7 @@ def _compute_properties_from_data(data: dict, conv_id: str) -> dict | None:
 		session_agg = aggregate_ledger_usage(ledger, _("unknown"))
 		thread_agg = aggregate_block_dicts_usage(blocks, _("unknown"))
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		session_agg = None
 		thread_agg = None
 
@@ -967,6 +970,7 @@ def save_conversation(
 			with open(path, "r", encoding="utf-8") as f:
 				existing = json.load(f)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			existing = {}
 		if ledger_payload is None:
 			ledger_payload = resolve_ledger_for_saved_data(existing)
@@ -1086,6 +1090,7 @@ def delete_conversation(conv_id: str) -> bool:
 			with open(path, "r", encoding="utf-8") as f:
 				data = json.load(f)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			data = {}
 		to_delete_candidates = _collect_referenced_local_paths(data, conv_id=conv_id)
 		other_refs = set()
@@ -1102,6 +1107,7 @@ def delete_conversation(conv_id: str) -> bool:
 					other_conv_id = str(other_data.get("id", ""))
 					other_refs |= _collect_referenced_local_paths(other_data, conv_id=other_conv_id)
 				except Exception:
+					log.debug("Ignored error", exc_info=True)
 					continue
 		os.remove(path)
 		idx = _read_index()
@@ -1116,13 +1122,13 @@ def delete_conversation(conv_id: str) -> bool:
 				if os.path.isfile(p):
 					os.remove(p)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		conv_attach_dir = os.path.join(ATTACHMENTS_DIR, conv_id)
 		if os.path.isdir(conv_attach_dir):
 			try:
 				shutil.rmtree(conv_attach_dir, ignore_errors=True)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		return True
 	except Exception as err:
 		log.error(f"conversations: delete {conv_id}: {err}", exc_info=True)

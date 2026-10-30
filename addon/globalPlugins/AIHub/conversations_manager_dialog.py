@@ -25,6 +25,7 @@ from .tool_openai_tts_dialog import OpenAITTSToolDialog
 from .tool_pangram_dialog import PangramToolDialog
 from .toolsmenu import open_tool_dialog_by_class
 from .tool_voxtral_tts_dialog import VoxtralTTSToolDialog
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -35,6 +36,7 @@ def format_date(ts: int) -> str:
 		dt = datetime.datetime.fromtimestamp(ts)
 		return dt.strftime("%Y-%m-%d %H:%M")
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return str(ts)
 
 
@@ -922,5 +924,5 @@ def show_conversations_manager(plugin):
 			if dlg is not None:
 				dlg.Destroy()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		gui.mainFrame.postPopup()

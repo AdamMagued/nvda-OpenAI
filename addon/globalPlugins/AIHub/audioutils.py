@@ -76,7 +76,7 @@ def downsample_to_voice_wav(input_path: str, target_rate: int = VOICE_TARGET_RAT
 			try:
 				os.remove(write_path)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		return input_path
 
 
@@ -216,5 +216,5 @@ def trim_silence_wav(
 			try:
 				os.remove(write_path)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		return input_path

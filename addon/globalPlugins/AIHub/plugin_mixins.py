@@ -111,6 +111,7 @@ class MenuMixin:
 		try:
 			info = obj.makeTextInfo(textInfos.POSITION_SELECTION)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return ""
 		if not info or info.isCollapsed:
 			return ""
@@ -123,6 +124,7 @@ class MenuMixin:
 			try:
 				text = api.getClipData() or ""
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				text = ""
 		if not text.strip():
 			# Translators: AI-Hub global script: feedback when there is neither selected text nor clipboard text to send to Pangram.
@@ -194,7 +196,7 @@ class DialogSessionMixin:
 				if dialog in self._openMainDialogs:
 					self._openMainDialogs.remove(dialog)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			evt.Skip()
 
 		dlg.Bind(wx.EVT_CLOSE, _on_close)
@@ -258,6 +260,7 @@ class DialogSessionMixin:
 					if cand.IsShown():
 						return cand
 				except Exception:
+					log.debug("Ignored error", exc_info=True)
 					continue
 		# Fallback: the global trackers can be cleared (Esc/onCancel) before the
 		# window is destroyed, so also scan the open-dialogs registry.
@@ -267,6 +270,7 @@ class DialogSessionMixin:
 					if dlg.IsShown():
 						return dlg
 				except Exception:
+					log.debug("Ignored error", exc_info=True)
 					continue
 		return None
 
@@ -408,7 +412,7 @@ class AskRecordingMixin:
 						self.askRecordThread.start()
 						return
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 
 		# Translators: AI-Hub NVDA menu / global scripts: brief status feedback (speech/braille), not a full dialog.
 		ui.message(_("Recording question"))

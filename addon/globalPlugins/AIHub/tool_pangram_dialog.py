@@ -556,6 +556,7 @@ class PangramToolDialog(ToolDialogBase):
 		try:
 			text = api.getClipData()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			text = ""
 		if not text:
 			# Translators: Message when the user pastes into the Pangram tool but the clipboard has no text.
@@ -915,6 +916,7 @@ class PangramToolDialog(ToolDialogBase):
 			try:
 				report = _read_text_file(report_path)
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				report = ""
 		if not report:
 			preview = fd.get("report_preview", "")

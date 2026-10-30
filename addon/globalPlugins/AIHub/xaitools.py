@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from logHandler import log
 
 _XAI_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -77,6 +78,7 @@ def _wnd_text(wnd, attr: str) -> str:
 	try:
 		return ctrl.GetValue()
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return ""
 
 

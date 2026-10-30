@@ -105,7 +105,7 @@ def _labeled_control_row(parent, sizer, label_text, ctrl, proportion=0):
 	try:
 		ctrl.MoveAfterInTabOrder(lbl)
 	except Exception:
-		pass
+		log.debug("Ignored error", exc_info=True)
 	sizer.Add(lbl, 0, wx.LEFT | wx.RIGHT | wx.TOP, UI_SECTION_SPACING_PX)
 	sizer.Add(ctrl, proportion, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, UI_SECTION_SPACING_PX)
 	return lbl
@@ -130,7 +130,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				self._captureEphemeralToPage(old_page)
 				self._captureConversationChromeToPage(old_page)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		evt.Skip()
 
 	def _onNotebookPageChanged(self, evt):
@@ -150,7 +150,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self._captureConversationChromeToPage(self.get_active_page())
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		evt.Skip()
 
 	def _onSystemTextEdited(self, evt):
@@ -160,7 +160,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.get_active_page().conversationSystemText = self.systemTextCtrl.GetValue()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		evt.Skip()
 
 	def _merge_audio_transcripts_into_prompt(self, combined: str):
@@ -178,6 +178,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			focused = wx.Window.FindFocus()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return False
 		page = self._page_from_control(focused)
 		return page is not None and focused is page.promptTextCtrl
@@ -233,6 +234,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			return conversations.load_conversation(cid)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return None
 
 	def _chrome_hints_for_page(self, page):
@@ -346,13 +348,13 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			st["maxTokens"] = self.maxTokensSpinCtrl.GetValue()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		if model:
 			self._generation_chrome.capture(st, model)
 			try:
 				st["advancedSampling"] = self.advancedSamplingCheckBox.IsChecked()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			if hasattr(self, "streamModeCheckBox"):
 				st["stream"] = self.streamModeCheckBox.IsChecked()
 			if hasattr(self, "debugModeCheckBox"):
@@ -383,13 +385,13 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				self.advancedSamplingCheckBox.SetValue(bool(st["advancedSampling"]))
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			self._update_advanced_controls_visibility()
 		model = self.getCurrentModel()
 		try:
 			self.onModelChange(None)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		if "reasoningMode" in st:
 			self._apply_reasoning_mode_from_state(st)
 		model = self.getCurrentModel()
@@ -399,18 +401,18 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				self.maxTokensSpinCtrl.SetValue(int(st["maxTokens"]))
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		if self._effective_advanced_mode() and model:
 			if model.allows_request_parameter("temperature") and "temperature" in st and hasattr(self, "temperatureSpinCtrl"):
 				try:
 					self.temperatureSpinCtrl.SetValue(int(st["temperature"]))
 				except Exception:
-					pass
+					log.debug("Ignored error", exc_info=True)
 			if model.allows_request_parameter("top_p") and "topP" in st and hasattr(self, "topPSpinCtrl"):
 				try:
 					self.topPSpinCtrl.SetValue(int(st["topP"]))
 				except Exception:
-					pass
+					log.debug("Ignored error", exc_info=True)
 			for key, attr in (
 				("advancedSeed", "advancedSeedSpinCtrl"),
 				("advancedTopK", "advancedTopKSpinCtrl"),
@@ -421,12 +423,12 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 					try:
 						getattr(self, attr).SetValue(int(st[key]))
 					except Exception:
-						pass
+						log.debug("Ignored error", exc_info=True)
 			if "advancedStopText" in st and hasattr(self, "advancedStopTextCtrl"):
 				try:
 					self.advancedStopTextCtrl.SetValue(str(st["advancedStopText"] or ""))
 				except Exception:
-					pass
+					log.debug("Ignored error", exc_info=True)
 		if hasattr(self, "streamModeCheckBox") and "stream" in st:
 			v = bool(st["stream"])
 			self.streamModeCheckBox.SetValue(v)
@@ -460,7 +462,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.Layout()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _syncWindowTitleFromActiveTab(self):
 		"""Window title: "<tab label> (n/N) – Conversation" so users hear which tab is active."""
@@ -494,6 +496,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				primary = os.path.basename(getattr(files[0], "path", "") or "").strip()
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				primary = ""
 		if not primary:
 			return ""
@@ -586,6 +589,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			f = wx.Window.FindFocus()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			f = None
 		p = self._page_from_control(f)
 		if p is not None:
@@ -789,7 +793,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.Layout()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _onManualSaveRequested(self, evt=None):
 		"""Ctrl+S / menu save — no-op while the active tab is ephemeral."""
@@ -1041,7 +1045,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.Layout()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		self.updateFilesList(False)
 		self.updateAudioList(False)
 		self._syncWindowTitleFromActiveTab()
@@ -1052,11 +1056,11 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.onModelChange(evt)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		try:
 			self._captureConversationChromeToPage(self.get_active_page())
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		if evt:
 			evt.Skip()
 
@@ -1454,7 +1458,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.onModelChange(chrome_source=self.reasoningModeChoice)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _apply_reasoning_selection(self, model):
 		"""Persist config/per-model state from the current reasoning combo selection."""
@@ -1479,7 +1483,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				self._captureConversationChromeToPage(self.get_active_page())
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 
 	def onResetSystemPrompt(self, event):
 		self.systemTextCtrl.SetValue(DEFAULT_SYSTEM_PROMPT)
@@ -1652,7 +1656,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				self.messagesTextCtrl.SetFocus()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 
 		wx.CallAfter(_focus)
 
@@ -2513,13 +2517,13 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				return int(lbl.end)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		resp = getattr(block, "segmentResponse", None)
 		if resp is not None:
 			try:
 				return int(resp.start)
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		return None
 
 	def _position_assistant_reply_start(self, block):
@@ -2535,6 +2539,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			if not self.IsShown():
 				return
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return
 		ip = self._assistant_content_caret_ip(block)
 		if ip is None:
@@ -2550,9 +2555,9 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				try:
 					wx.CallAfter(self._focus_message_history_on_assistant_response, ip)
 				except Exception:
-					pass
+					log.debug("Ignored error", exc_info=True)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _focus_message_history_on_assistant_response(self, insertion_point):
 		"""Focus Messages and place the caret at ``insertion_point`` (once per reply)."""
@@ -2560,6 +2565,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			if not self.IsShown():
 				return
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return
 		if not self._foreground_window_is_this_dialog():
 			return
@@ -2571,7 +2577,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			if 0 <= ip <= text_len:
 				msgs.SetInsertionPoint(ip)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _foreground_window_is_this_dialog(self) -> bool:
 		"""True when the foreground window's root top-level is this dialog (user did not switch away)."""
@@ -2580,6 +2586,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				dlg_hwnd = self.GetHandle()
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				return False
 			if dlg_hwnd:
 				self._cached_dialog_hwnd = dlg_hwnd
@@ -2592,6 +2599,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				return False
 			return user32.GetAncestor(fg, _GA_ROOT) == dlg_hwnd
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return False
 
 	def canAutoReadStreamingResponse(self) -> bool:
@@ -2607,6 +2615,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			off_gui_thread = threading.current_thread() is not threading.main_thread()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			off_gui_thread = True
 		if off_gui_thread:
 			msgs_hwnd = getattr(self, "_cached_messages_hwnd", None)
@@ -2614,6 +2623,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				try:
 					msgs_hwnd = self.messagesTextCtrl.GetHandle()
 				except Exception:
+					log.debug("Ignored error", exc_info=True)
 					msgs_hwnd = None
 				if msgs_hwnd:
 					self._cached_messages_hwnd = msgs_hwnd
@@ -2623,16 +2633,18 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 				if hw and msgs_hwnd and hw == msgs_hwnd:
 					return False
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			return True
 		try:
 			if not self.IsShown():
 				return False
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return False
 		try:
 			active = wx.GetActiveWindow()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			active = None
 		if active is not None:
 			try:
@@ -2644,6 +2656,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			focus = wx.Window.FindFocus()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			focus = None
 		if focus is self.messagesTextCtrl:
 			return False
@@ -2651,6 +2664,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 			try:
 				return wx.GetTopLevelParent(focus) is self
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				return False
 		if (
 			getattr(self, "worker", None)
@@ -2687,10 +2701,12 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			model = self.getCurrentModel()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			model = None
 		try:
 			account = self.getCurrentAccount()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			account = None
 		use_direct = bool(getattr(model, "audioInput", False))
 		transcription_provider = get_transcription_provider(self.conf["audio"])
@@ -2789,12 +2805,12 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.advancedSamplingCheckBox.Disable()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		try:
 			self.streamModeCheckBox.Disable()
 			self.debugModeCheckBox.Disable()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		if self._effective_advanced_mode():
 			self.temperatureSpinCtrl.Disable()
 			self.topPSpinCtrl.Disable()
@@ -2809,7 +2825,7 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 					try:
 						_w.Disable()
 					except Exception:
-						pass
+						log.debug("Ignored error", exc_info=True)
 
 	def enableControls(self):
 		self.submitBtn.Enable()
@@ -2845,12 +2861,12 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 		try:
 			self.advancedSamplingCheckBox.Enable()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		try:
 			self.streamModeCheckBox.Enable()
 			self.debugModeCheckBox.Enable()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		if self._effective_advanced_mode():
 			self.temperatureSpinCtrl.Enable()
 			self.topPSpinCtrl.Enable()
@@ -2865,9 +2881,9 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 					try:
 						_w.Enable()
 					except Exception:
-						pass
+						log.debug("Ignored error", exc_info=True)
 		try:
 			self.Layout()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		self.updateFilesList(False)

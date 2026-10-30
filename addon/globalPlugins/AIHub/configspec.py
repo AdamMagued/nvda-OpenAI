@@ -15,6 +15,7 @@ from .consts import (
 	REASONING_EFFORT_OPTIONS,
 	DEFAULT_REASONING_EFFORT,
 )
+from logHandler import log
 
 confSpecs = {
 	"model": f"string(default={DEFAULT_MODEL})",
@@ -79,6 +80,7 @@ def _copy_missing(dst, src):
 	try:
 		items = list(src.items())
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return
 	for key, value in items:
 		if key not in dst:
@@ -87,6 +89,7 @@ def _copy_missing(dst, src):
 		try:
 			dst_child = dst.get(key)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			dst_child = None
 		if hasattr(dst_child, "items") and hasattr(value, "items"):
 			_copy_missing(dst_child, value)

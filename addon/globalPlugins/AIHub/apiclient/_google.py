@@ -19,6 +19,7 @@ from ..consts import ContentType, Role
 from ._content import _decode_data_url_to_bytes, _input_file_to_data_url, _is_text_media_type
 from ._errors import APIError
 from ._http import _USER_AGENT
+from logHandler import log
 
 GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -111,6 +112,7 @@ def _gemini_part_from_input_file(part: dict) -> Optional[dict]:
 			try:
 				text = raw.decode("utf-8", errors="replace")
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				return None
 			label = filename or "attached document"
 			return _gemini_text_part(f"[{label}]\n{text}")

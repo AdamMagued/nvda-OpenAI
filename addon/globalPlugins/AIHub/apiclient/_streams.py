@@ -26,6 +26,7 @@ from ._think_tags import (
 )
 from ._types import StreamEvent, build_stream_event
 from ._usage import _merge_usage, _normalize_usage, _normalize_usage_from_payload
+from logHandler import log
 
 
 # ---------------------------------------------------------------------------
@@ -306,4 +307,4 @@ def _safe_close(resp) -> None:
 	try:
 		resp.close()
 	except Exception:
-		pass
+		log.debug("Ignored error", exc_info=True)

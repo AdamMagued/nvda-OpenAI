@@ -5,6 +5,7 @@ from html import escape
 import locale
 import re
 import addonHandler
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -129,6 +130,7 @@ def _format_datetime(value):
 			return None
 		return datetime.fromtimestamp(ts).strftime("%x %X")
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return None
 
 

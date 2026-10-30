@@ -17,6 +17,7 @@ import uuid
 from typing import Any
 
 from .consts import Provider
+from logHandler import log
 
 PROMPT_CACHE_TTL_5M = "5m"
 PROMPT_CACHE_TTL_1H = "1h"
@@ -56,12 +57,14 @@ def cache_ttl_for_provider(conf: Any, provider: str) -> str:
 	try:
 		section = conf.get("promptCacheTtl")
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		section = None
 	if section is None:
 		return PROMPT_CACHE_TTL_5M
 	try:
 		return normalize_prompt_cache_ttl(section.get(key))
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return PROMPT_CACHE_TTL_5M
 
 

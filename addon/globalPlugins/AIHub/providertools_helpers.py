@@ -3,12 +3,14 @@
 import wx
 
 from .consts import UI_FORM_ROW_BORDER_PX
+from logHandler import log
 
 
 def safe_int(value, default=None):
 	try:
 		return int(str(value).strip())
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return default
 
 
@@ -16,6 +18,7 @@ def safe_float(value, default=None):
 	try:
 		return float(str(value).strip())
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return default
 
 

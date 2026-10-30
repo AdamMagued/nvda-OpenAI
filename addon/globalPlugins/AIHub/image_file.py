@@ -14,6 +14,7 @@ import mimetypes
 import urllib.parse
 
 from .imagehelper import get_image_dimensions
+from logHandler import log
 
 URL_PATTERN = re.compile(
 	r"^(?:http)s?://(?:[A-Z0-9-]+\.)+[A-Z]{2,6}(?::\d+)?(?:/?|[/?]\S+)$",
@@ -104,6 +105,7 @@ class AttachmentFile:
 			try:
 				return get_image_dimensions(self.path)
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				return None
 		return None
 

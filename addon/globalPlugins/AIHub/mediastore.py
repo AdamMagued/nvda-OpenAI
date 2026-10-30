@@ -8,6 +8,7 @@ import shutil
 import uuid
 
 from .consts import DATA_DIR, ensure_dir_exists
+from logHandler import log
 
 MEDIA_DIR = os.path.join(DATA_DIR, "media")
 MEDIA_INDEX_PATH = os.path.join(MEDIA_DIR, "index.json")
@@ -37,6 +38,7 @@ def _load_media_index() -> dict:
 			entries = {}
 		return {"version": MEDIA_INDEX_VERSION, "entries": entries}
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return {"version": MEDIA_INDEX_VERSION, "entries": {}}
 
 

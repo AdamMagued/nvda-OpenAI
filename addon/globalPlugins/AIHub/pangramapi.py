@@ -14,6 +14,7 @@ import time
 import urllib.parse
 
 from .apiclient import APIConnectionError, APIStatusError, build_multipart_body, http_request_json
+from logHandler import log
 
 TEXT_API_BASE_URL = "https://text.external-api.pangram.com"
 FILE_API_BASE_URL = "https://file-external.api.pangram.com"
@@ -67,6 +68,7 @@ def _error_detail(body: str) -> str:
 	try:
 		data = json.loads(body)
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return body.strip()
 	if isinstance(data, dict):
 		detail = data.get("detail", data.get("error", data.get("message")))

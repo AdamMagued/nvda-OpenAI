@@ -8,6 +8,7 @@ import wx
 
 from . import apikeymanager
 from .apiclient import configure_client_for_provider
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -51,6 +52,7 @@ class ToolDialogBase(wx.Dialog):
 		try:
 			return not self.IsBeingDeleted()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return False
 
 	def bind_ctrl_enter_submit(self, handler):
@@ -91,7 +93,7 @@ class ToolDialogBase(wx.Dialog):
 			try:
 				focus_ctrl.SetFocus()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		return True
 
 	def is_task_cancel_requested(self) -> bool:
@@ -104,6 +106,7 @@ class ToolDialogBase(wx.Dialog):
 			# Translators: Short status text repeatedly pulsed in the tool progress dialog while the background HTTP task is still running.
 			keep_going, _ = self._taskProgressDialog.Pulse(_("Task in progress..."))
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			keep_going = True
 		if not keep_going:
 			self._request_task_cancel()
@@ -133,14 +136,14 @@ class ToolDialogBase(wx.Dialog):
 			try:
 				timer.Stop()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			self._taskProgressTimer = None
 		dlg = self._taskProgressDialog
 		if dlg is not None:
 			try:
 				dlg.Destroy()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 			self._taskProgressDialog = None
 
 	def _onCharHook(self, evt):
@@ -209,7 +212,7 @@ class ToolDialogBase(wx.Dialog):
 		try:
 			parent._autoSaveConversation()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def attach_audio_to_conversation(self, path):
 		parent = self.parentDialog
@@ -223,7 +226,7 @@ class ToolDialogBase(wx.Dialog):
 		try:
 			parent._autoSaveConversation()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def open_local_path(self, path: str, err_title: str = "OpenAI") -> bool:
 		if not isinstance(path, str) or not path:

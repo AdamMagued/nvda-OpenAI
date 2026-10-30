@@ -9,6 +9,7 @@ import addonHandler
 from ..consts import UI_SECTION_SPACING_PX
 from ._base import ProviderToolsSection
 from ._widgets import bind_checkbox
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -33,7 +34,7 @@ class NativeWebSearchSection(ProviderToolsSection):
 			if model:
 				self.dialog._generation_chrome.update_for_model(model)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		self._edited(evt)
 
 	def update_for_model(self, model) -> None:

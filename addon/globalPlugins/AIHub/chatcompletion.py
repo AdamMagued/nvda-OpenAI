@@ -661,7 +661,7 @@ class CompletionThread(threading.Thread):
 					try:
 						wx.CallAfter(wnd._merge_audio_transcripts_into_prompt, combined_txt)
 					except Exception:
-						pass
+						log.debug("Ignored error", exc_info=True)
 				if not prompt and any(t for t in transcripts):
 					block.prompt = "\n".join(t for t in transcripts if t).strip()
 					prompt = block.prompt
@@ -995,7 +995,7 @@ class CompletionThread(threading.Thread):
 			if hasattr(wnd, "getCurrentModel"):
 				model = wnd.getCurrentModel()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		# xAI Responses API uses structured summary + output_text channels.
 		use_think_strip = not (model and model.provider == Provider.xAI)
 		think_states = _new_think_chain_states() if use_think_strip else None

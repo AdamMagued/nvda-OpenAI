@@ -1,6 +1,7 @@
 """Unified cooperative shutdown for AI-Hub worker threads (conversation, tools, recording)."""
 import threading
 from typing import Any
+from logHandler import log
 
 # Join timeout in seconds; 0 means do not block the UI waiting for thread exit.
 DEFAULT_JOIN_TIMEOUT = 0.0
@@ -19,14 +20,14 @@ def stop_worker_thread(worker: Any, *, join_timeout: float = DEFAULT_JOIN_TIMEOU
 		try:
 			worker.stop()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 	elif hasattr(worker, "abort"):
 		try:
 			worker.abort()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 	if isinstance(worker, threading.Thread):
 		try:
 			worker.join(timeout=join_timeout)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)

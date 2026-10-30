@@ -894,6 +894,7 @@ def getModels(provider, account_id: str = None) -> list:
 		try:
 			models.append(_parse_model_obj(provider, m))
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			continue
 
 	models.sort(key=lambda m: m.created, reverse=True)

@@ -177,7 +177,7 @@ class ModelHandlersMixin:
 		try:
 			self.modelsListCtrl.Append(text, None)
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _onModelsLoaded(self, token, account_key, models, model_to_select):
 		current = self.getCurrentAccount()
@@ -257,6 +257,7 @@ class ModelHandlersMixin:
 		try:
 			lst = self.modelsListCtrl
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return None
 		idx = lst.GetSelection()
 		if idx == wx.NOT_FOUND:
@@ -443,6 +444,7 @@ class ModelHandlersMixin:
 		try:
 			src = evt.GetEventObject()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return False
 		for w in (
 			*(getattr(self, "_generation_chrome", None).preserve_controls() if hasattr(self, "_generation_chrome") else ()),
@@ -708,7 +710,7 @@ class ModelHandlersMixin:
 				try:
 					self._captureConversationChromeToPage(self.get_active_page())
 				except Exception:
-					pass
+					log.debug("Ignored error", exc_info=True)
 	def showModelDetails(self, evt=None, model=None):
 		if model is None:
 			model = self._requireModel()

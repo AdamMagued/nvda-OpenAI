@@ -22,6 +22,7 @@ from .providertools_helpers import add_labeled_factory, parse_modelfile
 from .thread_shutdown import stop_worker_thread
 from .background import call_after_if_alive, start_background
 from .tool_dialog_base import ToolDialogBase
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -344,4 +345,4 @@ class OllamaModelManagerToolDialog(ToolDialogBase):
 		try:
 			self.Destroy()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)

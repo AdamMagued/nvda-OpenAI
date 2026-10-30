@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from ..consts import ContentType, Provider
 from ._errors import APIError
+from logHandler import log
 
 
 # Mime types we treat as text for inlining purposes (so PDFs etc. stay binary).
@@ -50,6 +51,7 @@ def _decode_audio_base64(value: Any) -> Optional[bytes]:
 	try:
 		return base64.b64decode(data, validate=False)
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return None
 
 
@@ -135,6 +137,7 @@ def _decode_data_url_to_bytes(data_url: str) -> tuple[bytes, str] | tuple[None, 
 	try:
 		return (base64.b64decode(payload, validate=False), mime)
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return (None, mime)
 
 
@@ -168,6 +171,7 @@ def _input_file_to_text_part(part: dict) -> Optional[dict]:
 	try:
 		text = raw.decode("utf-8", errors="replace")
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return None
 	label = filename or "attached document"
 	return {
@@ -339,6 +343,7 @@ def _decode_text_payload(data: str, media_type: str) -> str:
 		decoded = base64.b64decode(raw_data, validate=False)
 		return decoded.decode("utf-8", errors="replace")
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return ""
 
 

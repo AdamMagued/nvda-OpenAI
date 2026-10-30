@@ -289,6 +289,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			try:
 				result = self._try_lyria_generate_via_gemini_api(api_key, model, full_prompt, options)
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				err = interactions_err
 		call_after_if_alive(self, self._onGenerationDone, result, err, options.get("response_format", "wav"))
 

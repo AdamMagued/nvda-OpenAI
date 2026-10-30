@@ -12,6 +12,7 @@ import urllib.request
 from typing import Any, Optional
 
 from ._errors import APIConnectionError, APIStatusError, _resolve_error_message
+from logHandler import log
 
 # User-Agent crafted to look like a regular browser so Cloudflare-fronted
 # providers (notably api.x.ai) don't 1010-block stdlib's "Python-urllib/..." UA.
@@ -98,7 +99,7 @@ def _open_streaming(opener, req, *, timeout: int) -> Any:
 		try:
 			resp.close()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 		raise APIStatusError(
 			_resolve_error_message(text, resp.status),
 			status_code=resp.status,

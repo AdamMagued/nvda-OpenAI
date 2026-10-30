@@ -42,6 +42,7 @@ def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 						continue
 					return (provider, model_id, model)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			continue
 	if requires_audio_model:
 		for provider in apikeymanager.CHAT_PROVIDERS:
@@ -52,6 +53,7 @@ def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 					if getattr(model, "audioInput", False):
 						return (provider, model.id, model)
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				continue
 	for provider in apikeymanager.CHAT_PROVIDERS:
 		if not apikeymanager.get(provider).isReady():
@@ -63,6 +65,7 @@ def find_provider_for_ask(model_id: str, requires_audio_model: bool):
 				if not getattr(model, "audioInput", False):
 					return (provider, model.id, model)
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			continue
 	return (None, None, None)
 
@@ -81,6 +84,7 @@ def mci_play_wav(path: str) -> bool:
 			return False
 		return True
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return False
 
 
@@ -92,6 +96,7 @@ def mci_stop_ask_audio() -> bool:
 		winmm.mciSendStringW(f"close {MCI_ALIAS_ASK}", None, 0, 0)
 		return True
 	except Exception:
+		log.debug("Ignored error", exc_info=True)
 		return False
 
 

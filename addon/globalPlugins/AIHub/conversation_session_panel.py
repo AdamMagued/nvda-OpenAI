@@ -5,6 +5,7 @@ import wx
 import addonHandler
 
 from .consts import UI_SECTION_SPACING_PX
+from logHandler import log
 
 addonHandler.initTranslation()
 
@@ -41,7 +42,7 @@ class ConversationSessionPanel(wx.Panel):
 			try:
 				self.SetAccessible(ConversationSessionPanelAccessible(self))
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		self.host = host
 		self.worker = None
 		self.stopRequest = None

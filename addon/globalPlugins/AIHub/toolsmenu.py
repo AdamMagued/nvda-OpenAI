@@ -167,7 +167,7 @@ def open_tool_dialog(parent, tool_def, conversationData=None, plugin=None):
 			try:
 				managers.append(apikeymanager.get(provider))
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		if managers and not any(m.isReady() for m in managers):
 			provider_label = group_label or manager_provider
 			wx.MessageBox(

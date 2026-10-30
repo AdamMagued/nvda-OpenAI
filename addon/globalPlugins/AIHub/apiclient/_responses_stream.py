@@ -36,6 +36,7 @@ from ._think_tags import (
 )
 from ._types import StreamEvent, build_stream_event
 from ._usage import _normalize_usage, count_payload_web_searches
+from logHandler import log
 
 _REASONING_DELTA_EVENTS = frozenset({
 	"response.reasoning_summary_text.delta",
@@ -315,7 +316,7 @@ def _responses_safe_close(resp) -> None:
 	try:
 		resp.close()
 	except Exception:
-		pass
+		log.debug("Ignored error", exc_info=True)
 
 
 def stream_responses_api(

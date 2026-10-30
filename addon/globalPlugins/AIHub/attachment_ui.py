@@ -1,6 +1,7 @@
 """Shared UI helpers for attachment list controls (files and audio)."""
 
 import wx
+from logHandler import log
 
 
 class AttachmentListUIMixin:
@@ -10,6 +11,7 @@ class AttachmentListUIMixin:
 		try:
 			page = self.get_active_page()
 		except Exception:
+			log.debug("Ignored error", exc_info=True)
 			return
 		lbl = getattr(page, "attachmentsSectionLabel", None)
 		if lbl is None:
@@ -32,21 +34,23 @@ class AttachmentListUIMixin:
 			try:
 				panel = anchor.GetParent()
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				panel = None
 		if panel is None:
 			try:
 				panel = self.get_active_page()
 			except Exception:
+				log.debug("Ignored error", exc_info=True)
 				panel = None
 		if panel is not None:
 			try:
 				panel.Layout()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 		try:
 			self.Layout()
 		except Exception:
-			pass
+			log.debug("Ignored error", exc_info=True)
 
 	def _attachment_list_end_refresh(self, list_ctrl, *, focus_prompt_if_empty=True):
 		self._relayout_attachments(anchor=list_ctrl)

@@ -8,6 +8,7 @@ from typing import Any, Optional
 import wx
 
 from ..consts import UI_SECTION_SPACING_PX
+from logHandler import log
 
 
 class ChromeSection(ABC):
@@ -46,7 +47,7 @@ class ChromeSection(ABC):
 			try:
 				ctrl.Disable()
 			except Exception:
-				pass
+				log.debug("Ignored error", exc_info=True)
 
 
 class ProviderToolsSection(ChromeSection):
