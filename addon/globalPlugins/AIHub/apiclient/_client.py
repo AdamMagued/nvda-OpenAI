@@ -282,9 +282,12 @@ class OpenAIClient:
 			"session_id",
 			"cache_control",
 		}
-		# xAI reasoning models reject these on the Responses API.
-		if provider == Provider.xAI:
+		# Chat Completions-only sampling fields: the Responses API rejects them
+		# (https://developers.openai.com/api/reference/resources/responses/methods/create).
+		if provider in (Provider.xAI, Provider.OpenAI):
 			skip_keys |= {"stop", "frequency_penalty", "presence_penalty"}
+		if provider == Provider.OpenAI:
+			skip_keys.add("seed")
 		for key, value in kwargs.items():
 			if value is None or key in skip_keys:
 				continue

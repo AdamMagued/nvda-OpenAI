@@ -130,17 +130,25 @@ class Model:
 
 	@property
 	def supports_web_search(self):
-		"""True when model metadata declares provider-native web search."""
+		"""True when model metadata declares provider-native web search.
+
+		SigmaNight ``pricing.web_search`` is the per-search price of the provider's
+		own search tool, so a non-zero value means the model supports it (OpenAI
+		Responses ``web_search``, Anthropic ``web_search``, Gemini Google Search
+		grounding, xAI ``web_search``).
+		"""
 		params = self._supported_param_set()
 		if params & {"web_search_options", "web_search", "google_search"}:
 			return True
-		# SigmaNight Anthropic metadata lists generic tools support; web search uses that API.
-		if self.provider == Provider.Anthropic and "tools" in params:
-			return True
-		# xAI built-in web search uses the Responses API ``web_search`` tool.
-		if self.provider == Provider.xAI and "tools" in params:
-			return True
-		return False
+		if self.provider not in _NATIVE_WEB_SEARCH_PROVIDERS:
+			return False
+		pricing = self.extraInfo.get("pricing") if isinstance(self.extraInfo, dict) else None
+		if not isinstance(pricing, dict):
+			return False
+		try:
+			return float(pricing.get("web_search") or 0) > 0
+		except (TypeError, ValueError):
+			return False
 
 	@property
 	def supports_x_search(self):
@@ -403,6 +411,11 @@ class Model:
 		return hash((self.provider, self.id))
 
 
+# Providers whose native web search the request builder knows how to attach
+# (see chatcompletion._apply_web_search_settings). OpenRouter has its own path.
+_NATIVE_WEB_SEARCH_PROVIDERS = (Provider.OpenAI, Provider.Anthropic, Provider.Google, Provider.xAI)
+
+
 PROVIDER_URL = {
 	Provider.MistralAI: "https://raw.githubusercontent.com/SigmaNight/model-metadata/refs/heads/master/data/mistralai.json",
 	Provider.OpenAI: "https://raw.githubusercontent.com/SigmaNight/model-metadata/refs/heads/master/data/openai.json",
@@ -568,13 +581,6 @@ def _parse_model_obj(provider: str, model: dict) -> Model:
 	exclude_keys_pre = {"id", "name", "description", "context_length", "top_provider", "parameter_conflicts", "default_parameters"}
 	extra_info_pre = {k: v for k, v in model.items() if k not in exclude_keys_pre}
 	reasoning_mandatory = _detect_reasoning_mandatory(provider, model_id, extra_info_pre) if reasoning else False
-
-	# Web search: supported Gemini models per https://ai.google.dev/gemini-api/docs/google-search
-	if provider == Provider.Google and (
-		"gemini-2.0" in model_id or "gemini-2.5" in model_id or "gemini-3" in model_id
-	):
-		if "google_search" not in supported:
-			supported = list(supported) + ["google_search"]
 
 	# Use only parameters from supported_parameters; no defaults or provider overrides
 	created = model.get("created", 0)

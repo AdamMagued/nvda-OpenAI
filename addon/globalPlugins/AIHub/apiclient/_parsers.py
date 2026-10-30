@@ -272,18 +272,35 @@ def _responses_payload_root(data: dict) -> dict:
 	return data
 
 
+def _extract_responses_citations(root: dict) -> list[str]:
+	"""Citation URLs from top-level ``citations`` (xAI) and ``url_citation`` annotations (OpenAI)."""
+	citations: list[str] = []
+	raw = root.get("citations") if isinstance(root, dict) else None
+	if isinstance(raw, list):
+		for item in raw:
+			if isinstance(item, str) and item.strip():
+				citations.append(item.strip())
+	for item in (root.get("output") if isinstance(root, dict) else None) or []:
+		if not isinstance(item, dict) or not isinstance(item.get("content"), list):
+			continue
+		for part in item["content"]:
+			if not isinstance(part, dict) or not isinstance(part.get("annotations"), list):
+				continue
+			for ann in part["annotations"]:
+				if not isinstance(ann, dict) or ann.get("type") != "url_citation":
+					continue
+				url = ann.get("url")
+				if isinstance(url, str) and url.strip() and url.strip() not in citations:
+					citations.append(url.strip())
+	return citations
+
+
 def _extract_responses_metadata(data: dict) -> tuple[str, list[str]]:
 	"""Extract response id and citation URLs from a Responses API payload."""
 	root = _responses_payload_root(data if isinstance(data, dict) else {})
 	rid = root.get("id")
 	response_id = rid.strip() if isinstance(rid, str) else ""
-	raw = root.get("citations")
-	citations: list[str] = []
-	if isinstance(raw, list):
-		for item in raw:
-			if isinstance(item, str) and item.strip():
-				citations.append(item.strip())
-	return response_id, citations
+	return response_id, _extract_responses_citations(root)
 
 
 def _extract_responses_encrypted_reasoning(data: dict) -> list[dict]:

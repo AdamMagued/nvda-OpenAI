@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Iterator
 
 from ._parsers import (
+	_extract_responses_citations,
 	_extract_responses_assistant_text,
 	_extract_responses_encrypted_reasoning,
 	_extract_responses_reasoning_from_item,
@@ -258,12 +259,7 @@ class _ResponsesStreamParser:
 		rid = resp_obj.get("id")
 		if isinstance(rid, str) and rid.strip():
 			response_id = rid.strip()
-		citations: list[str] = []
-		raw_citations = resp_obj.get("citations")
-		if isinstance(raw_citations, list):
-			for item in raw_citations:
-				if isinstance(item, str) and item.strip():
-					citations.append(item.strip())
+		citations = _extract_responses_citations(resp_obj)
 		encrypted_reasoning = _extract_responses_encrypted_reasoning(resp_obj)
 		output = resp_obj.get("output") or []
 		reconcile_reasoning = _extract_responses_reasoning_from_output(
