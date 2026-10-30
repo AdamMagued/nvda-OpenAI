@@ -93,7 +93,9 @@ TTS_DEFAULT_MODEL = "tts-1"
 
 DEFAULT_MODEL = "gpt-5"
 
-WHISPER_MODELS = ["whisper-1"]
+# OpenAI transcription models; whisper-1 and gpt-4o-*-transcribe shut down on 2027-02-26.
+# https://developers.openai.com/api/docs/guides/speech-to-text
+WHISPER_MODELS = ["gpt-transcribe", "whisper-1"]
 VOXTRAL_MODELS = ["voxtral-mini-latest"]
 
 

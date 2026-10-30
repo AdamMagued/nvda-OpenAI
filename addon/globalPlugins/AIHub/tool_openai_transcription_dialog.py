@@ -36,10 +36,11 @@ def _split_csv(text: str) -> list[str]:
 
 class OpenAITranscriptionToolDialog(ToolDialogBase):
 	SUGGESTED_MODELS = (
+		"gpt-transcribe",
+		"gpt-4o-transcribe-diarize",
+		"whisper-1",
 		"gpt-4o-transcribe",
 		"gpt-4o-mini-transcribe",
-		"whisper-1",
-		"gpt-4o-transcribe-diarize",
 	)
 
 	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None):

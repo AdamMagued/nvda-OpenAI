@@ -98,7 +98,7 @@ class WhisperTranscription:
 
 # Transcription provider -> (account provider, account-id config key, model config key, default model).
 _API_TRANSCRIPTION_SETTINGS = {
-	TranscriptionProvider.OPENAI: (Provider.OpenAI, "openaiTranscriptionAccountId", "whisperModel", "whisper-1"),
+	TranscriptionProvider.OPENAI: (Provider.OpenAI, "openaiTranscriptionAccountId", "whisperModel", "gpt-transcribe"),
 	TranscriptionProvider.MISTRAL: (Provider.MistralAI, "mistralTranscriptionAccountId", "voxtralModel", "voxtral-mini-latest"),
 	TranscriptionProvider.CUSTOM_OPENAI: (
 		Provider.CustomOpenAI,

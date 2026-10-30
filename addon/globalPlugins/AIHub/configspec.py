@@ -49,7 +49,8 @@ confSpecs = {
 		"openaiTranscriptionAccountId": 'string(default="")',
 		"mistralTranscriptionAccountId": 'string(default="")',
 		"customOpenaiTranscriptionAccountId": 'string(default="")',
-		"customOpenaiTranscriptionModel": f"string(default={WHISPER_MODELS[0]})",
+		# OpenAI-compatible servers usually expose the Whisper model id.
+		"customOpenaiTranscriptionModel": "string(default=whisper-1)",
 		"whisper.cpp": {
 			"enabled": "boolean(default=False)",
 			"host": "string(default='http://127.0.0.1:8081')"
