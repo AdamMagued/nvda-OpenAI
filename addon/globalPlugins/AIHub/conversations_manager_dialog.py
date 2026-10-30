@@ -108,7 +108,7 @@ class ConversationsManagerDialog(wx.Dialog):
 
 		self._list = wx.ListCtrl(
 			self,
-			style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES,
+			style=wx.LC_REPORT,
 			size=(600, 320)
 		)
 		# Translators: List column header: saved conversation display title in Manage saved conversations.

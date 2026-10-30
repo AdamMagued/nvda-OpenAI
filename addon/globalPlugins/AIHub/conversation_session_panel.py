@@ -128,7 +128,7 @@ class ConversationSessionPanel(wx.Panel):
 		)
 		self.filesListCtrl = wx.ListCtrl(
 			self,
-			style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES,
+			style=wx.LC_REPORT,
 			size=(700, 200),
 		)
 		# Translators: Column headers in attached files list.
@@ -161,7 +161,7 @@ class ConversationSessionPanel(wx.Panel):
 		)
 		self.audioListCtrl = wx.ListCtrl(
 			self,
-			style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES,
+			style=wx.LC_REPORT,
 			size=(700, 120),
 		)
 		# Translators: Column headers in attached audio list.

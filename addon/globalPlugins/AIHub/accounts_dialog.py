@@ -160,7 +160,7 @@ class AccountsManagementDialog(wx.Dialog):
 		root.Add(hint, 0, wx.ALL, 10)
 		self.accounts_list = wx.ListCtrl(
 			panel,
-			style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES,
+			style=wx.LC_REPORT,
 			size=(520, 240),
 		)
 		# Translators: Column header for the combined provider / account list in API accounts management.
