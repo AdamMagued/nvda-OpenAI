@@ -29,6 +29,7 @@ confSpecs = {
 	"saveSystem": "boolean(default=true)",
 	"autoSaveConversation": "boolean(default=True)",
 	"promptCache": "boolean(default=True)",
+	"anthropicRefusalFallback": "boolean(default=True)",
 	"promptCacheTtl": {
 		"Anthropic": 'option("5m", "1h", default="5m")',
 		"OpenRouter": 'option("5m", "1h", default="5m")',

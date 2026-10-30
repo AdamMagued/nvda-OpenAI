@@ -238,6 +238,19 @@ _WEB_SEARCH_DYNAMIC_MATCHES = (
 )
 
 
+# Models that accept ``fallbacks: "default"`` (re-run a declined request on the
+# model Anthropic recommends for that refusal category). Claude Haiku 5.5 has
+# no server-side fallback.
+# https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback
+ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+_DEFAULT_FALLBACK_MATCHES = ("claude-opus-5", "claude-fable-5", "claude-sonnet-5-5")
+
+
+def anthropic_supports_default_fallback(model_id: str) -> bool:
+	mid = (model_id or "").lower()
+	return any(match in mid for match in _DEFAULT_FALLBACK_MATCHES)
+
+
 def anthropic_web_search_tool(model_id: str) -> Dict[str, str]:
 	"""Return the server web search tool definition suited to *model_id*."""
 	mid = (model_id or "").lower()

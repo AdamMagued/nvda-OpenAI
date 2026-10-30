@@ -822,6 +822,8 @@ class CompletionThread(threading.Thread):
 					resolve_prompt_cache_key(cache_page),
 					ttl=cache_ttl_for_provider(conf, provider),
 				)
+		if provider == Provider.Anthropic and conf.get("anthropicRefusalFallback", True):
+			params["refusal_fallback"] = True
 		if provider == Provider.xAI:
 			_apply_xai_include_settings(params, model, wnd, provider, useReasoning)
 			_apply_xai_previous_response_id(params, wnd, is_regenerate)

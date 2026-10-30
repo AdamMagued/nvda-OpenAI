@@ -17,6 +17,8 @@ from typing import Any, BinaryIO, Generator, Optional
 
 from .. import apikeymanager
 from ..anthropicthinking import (
+	ANTHROPIC_FALLBACK_BETA,
+	anthropic_supports_default_fallback,
 	anthropic_web_search_tool,
 	anthropic_reasoning_always_on,
 	anthropic_use_adaptive_thinking,
@@ -376,8 +378,12 @@ class OpenAIClient:
 		if not anthropic_msgs:
 			raise APIError("No valid messages for Anthropic")
 		body = self._build_anthropic_body(model, anthropic_msgs, stream, system, kwargs)
+		betas = []
+		if kwargs.get("refusal_fallback") and anthropic_supports_default_fallback(model):
+			body["fallbacks"] = "default"
+			betas.append(ANTHROPIC_FALLBACK_BETA)
 		url = f"{self.base_url}/messages"
-		headers = _build_anthropic_headers(self.api_key)
+		headers = _build_anthropic_headers(self.api_key, betas)
 		data = json.dumps(body).encode("utf-8")
 		req = urllib.request.Request(url, data=data, headers=headers, method="POST")
 		if stream:

@@ -67,6 +67,13 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		self.promptCache.SetValue(conf.get("promptCache", True))
 		self.promptCache.Bind(wx.EVT_CHECKBOX, self.onPromptCache)
 		conversationGroup.addItem(self.promptCache)
+		self.anthropicRefusalFallback = wx.CheckBox(
+			conversationBox,
+			# Translators: NVDA Preferences — AI-Hub category: Conversation section — when a Claude model declines a request, let Anthropic retry it on another Claude model.
+			label=_("When a Claude model declines a request, let Anthropic retry it on another Claude model"),
+		)
+		self.anthropicRefusalFallback.SetValue(conf.get("anthropicRefusalFallback", True))
+		conversationGroup.addItem(self.anthropicRefusalFallback)
 		cacheTtlHint = wx.StaticText(
 			conversationBox,
 			# Translators: NVDA Preferences — AI-Hub category: Conversation section — explains which providers honor cache duration.
@@ -413,6 +420,7 @@ class AIHubSettingsPanel(gui.settingsDialogs.SettingsPanel):
 		conf["saveSystem"] = self.saveSystem.GetValue()
 		conf["autoSaveConversation"] = self.autoSaveConversation.GetValue()
 		conf["promptCache"] = self.promptCache.GetValue()
+		conf["anthropicRefusalFallback"] = self.anthropicRefusalFallback.GetValue()
 		ttl_section = conf.get("promptCacheTtl")
 		if ttl_section is None:
 			conf["promptCacheTtl"] = {}
