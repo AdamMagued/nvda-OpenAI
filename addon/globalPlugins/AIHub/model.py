@@ -429,7 +429,7 @@ class Model:
 
 
 # Providers whose native web search the request builder knows how to attach
-# (see chatcompletion._apply_web_search_settings). OpenRouter has its own path.
+# (see chatparams._apply_web_search_settings). OpenRouter has its own path.
 _NATIVE_WEB_SEARCH_PROVIDERS = (Provider.OpenAI, Provider.Anthropic, Provider.Google, Provider.xAI)
 
 
