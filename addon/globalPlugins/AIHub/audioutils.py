@@ -15,6 +15,15 @@ from .consts import MIN_SAMPLES_FOR_TRIM, TEMP_DIR, ensure_temp_dir
 VOICE_TARGET_RATE = 16000
 
 
+def write_pcm16_wav(path: str, data: bytes, sample_rate: int = 24000, channels: int = 1) -> None:
+	"""Write raw 16-bit little-endian PCM samples as a playable WAV file."""
+	with wave.open(path, "wb") as wav:
+		wav.setnchannels(channels)
+		wav.setsampwidth(2)
+		wav.setframerate(sample_rate)
+		wav.writeframes(data)
+
+
 def downsample_to_voice_wav(input_path: str, target_rate: int = VOICE_TARGET_RATE) -> str:
 	"""
 	Downsample WAV to target_rate mono 16-bit. Reduces file size for voice

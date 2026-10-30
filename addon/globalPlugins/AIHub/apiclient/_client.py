@@ -28,6 +28,7 @@ from ..consts import BASE_URLs, Provider
 
 from ._content import (
 	_convert_messages_to_anthropic,
+	_decode_audio_base64,
 	_extract_audio_bytes_from_json_payload,
 	_has_input_file_parts,
 	_messages_to_responses_input,
@@ -47,6 +48,7 @@ from ._google import create_gemini_generate_content_request
 from ._parsers import parse_anthropic, parse_chat_completion, parse_gemini_generate_content, parse_responses
 from ._streams import stream_anthropic, stream_chat_completions, stream_gemini_generate_content
 from ._responses_stream import stream_responses_api
+from ._sse import iter_sse_data_blocks
 from ._types import ChatCompletion, Transcription
 
 
@@ -500,13 +502,17 @@ class OpenAIClient:
 			"response_format": response_format,
 		}
 		if voice:
-			body["voice"] = voice
+			# Custom voices are passed as an object: https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create
+			custom = getattr(self, "provider", None) == Provider.OpenAI and voice.startswith("voice_")
+			body["voice"] = {"id": voice} if custom else voice
 		for k, v in kwargs.items():
 			if v is None:
 				continue
 			body[k] = v
 		req = self._json_request("/audio/speech", body)
 		raw, content_type = _open_bytes(self._opener, req, timeout=60)
+		if body.get("stream_format") == "sse" or "text/event-stream" in content_type:
+			return _audio_from_speech_sse(raw)
 		# Some providers (Voxtral) return JSON with base64 audio_data instead of binary.
 		if "application/json" in content_type or "text/json" in content_type:
 			try:
@@ -785,11 +791,32 @@ class _AudioTranslations:
 		return self._client.audio_translations_create(**kwargs)
 
 
+def _audio_from_speech_sse(raw: bytes) -> bytes:
+	"""Join the base64 ``speech.audio.delta`` chunks of a ``stream_format=sse`` reply."""
+	audio = bytearray()
+	for block in iter_sse_data_blocks([raw]):
+		try:
+			event = json.loads(block.decode("utf-8", errors="replace"))
+		except json.JSONDecodeError:
+			continue
+		if isinstance(event, dict) and event.get("type") == "speech.audio.delta":
+			chunk = _decode_audio_base64(event.get("audio"))
+			if chunk:
+				audio.extend(chunk)
+	if not audio:
+		raise APIStatusError("No audio found in the speech event stream.", status_code=200, response_body="")
+	return bytes(audio)
+
+
 class _TTSResponse:
 	"""Wrapper exposing ``stream_to_file`` to match the openai-python TTS shape."""
 
 	def __init__(self, data: bytes):
 		self._data = data
+
+	@property
+	def content(self) -> bytes:
+		return self._data
 
 	def stream_to_file(self, path: str) -> None:
 		with open(path, "wb") as f:

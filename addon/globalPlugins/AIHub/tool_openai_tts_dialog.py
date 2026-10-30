@@ -18,6 +18,7 @@ from .consts import (
 	UI_FORM_ROW_BORDER_PX,
 	UI_SECTION_SPACING_PX,
 )
+from .audioutils import write_pcm16_wav
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory, safe_float
 from .thread_shutdown import stop_worker_thread
@@ -152,7 +153,12 @@ class OpenAITTSToolDialog(ToolDialogBase):
 			resp = self.client.audio.speech.create(**payload)
 			out_ext = ".wav" if payload.get("response_format") == "pcm" else f".{payload.get('response_format', 'mp3')}"
 			out_path = build_media_path("audio", out_ext, prefix="openai_tts")
-			resp.stream_to_file(out_path)
+			if payload.get("response_format") == "pcm":
+				# Raw 24 kHz 16-bit mono samples without a header:
+				# https://developers.openai.com/api/docs/guides/text-to-speech
+				write_pcm16_wav(out_path, resp.content, sample_rate=24000)
+			else:
+				resp.stream_to_file(out_path)
 		except Exception as e:
 			err = e
 		wx.CallAfter(self._onThreadDone, out_path, err, payload)
