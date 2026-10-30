@@ -17,7 +17,6 @@ from typing import Any, BinaryIO, Generator, Optional
 
 from .. import apikeymanager
 from ..anthropicthinking import (
-	anthropic_fixed_sampling_model,
 	anthropic_web_search_tool,
 	anthropic_reasoning_always_on,
 	anthropic_use_adaptive_thinking,
@@ -404,18 +403,7 @@ class OpenAIClient:
 		}
 		if system:
 			body["system"] = system
-		# Anthropic API: temperature and top_p are mutually exclusive.
-		temp = kwargs.get("temperature")
-		top_p = kwargs.get("top_p")
-		top_k = kwargs.get("top_k")
-		if anthropic_fixed_sampling_model(model):
-			temp = top_p = top_k = None
-		if temp is not None:
-			body["temperature"] = temp
-		elif top_p is not None:
-			body["top_p"] = top_p
-		if top_k is not None:
-			body["top_k"] = top_k
+		# API version 2026-10-21 rejects temperature, top_p and top_k on every model.
 		stop_seq = _normalize_stop_sequences(kwargs.get("stop"))
 		if stop_seq:
 			body["stop_sequences"] = stop_seq

@@ -27,7 +27,6 @@ _SONNET_5_PROFILE: Dict[str, object] = {
 	"effort_levels": _EFFORT_WITH_XHIGH,
 	"thinking_default_on": True,
 	"thinking_display_omitted_default": True,
-	"fixed_sampling": True,
 }
 
 # Fields every profile supplies after normalization.
@@ -45,8 +44,6 @@ _PROFILE_DEFAULTS: Dict[str, object] = {
 	"effort_levels": (),
 	"thinking_default_on": False,
 	"thinking_display_omitted_default": False,
-	# Anthropic Messages API rejects explicit temperature/top_p/top_k (omit entirely).
-	"fixed_sampling": False,
 }
 
 # (match substring, profile overrides) — first match wins.
@@ -63,7 +60,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_default_on": True,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -75,7 +71,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_default_on": True,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -86,7 +81,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -97,7 +91,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -109,7 +102,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -121,7 +113,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_MAX,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -133,7 +124,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -145,7 +135,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -157,12 +146,11 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_supported": True,
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	("claude-sonnet-5", dict(_SONNET_5_PROFILE)),
 	# Claude Haiku 5.5: adaptive only (``budget_tokens`` returns 400), thinking on by
-	# default, non-default sampling values rejected.
+	# default.
 	(
 		"claude-haiku-5",
 		{
@@ -172,7 +160,6 @@ _PROFILES: Tuple[Tuple[str, Dict[str, object]], ...] = (
 			"effort_levels": _EFFORT_WITH_XHIGH,
 			"thinking_default_on": True,
 			"thinking_display_omitted_default": True,
-			"fixed_sampling": True,
 		},
 	),
 	(
@@ -237,14 +224,6 @@ def anthropic_thinking_default_on(model_id: str) -> bool:
 	"""True when the API enables thinking unless the request disables it."""
 	profile = get_anthropic_thinking_profile(model_id)
 	return bool(profile.get("reasoning_always_on") or profile.get("thinking_default_on"))
-
-
-def anthropic_fixed_sampling_model(model_id: str) -> bool:
-	"""True when Anthropic rejects explicit temperature/top_p/top_k (must omit).
-
-	Sonnet 5 and Opus 4.7+ per official docs; also Fable/Mythos adaptive-only models.
-	"""
-	return bool(get_anthropic_thinking_profile(model_id).get("fixed_sampling"))
 
 
 # Models that accept the dynamic-filtering web search tool; older ones keep the basic variant.

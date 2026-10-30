@@ -106,19 +106,14 @@ class Model:
 		they are absent from ``supported_parameters`` (Sonnet 5, Opus 4.7+). When
 		a param is both supported and null-default (Sonnet 4.6), it stays tunable.
 
-		Anthropic ``fixed_sampling`` profiles (Sonnet 5, Opus 4.7+, Fable/Mythos)
-		also block temperature/top_p/top_k even if stale metadata lists them.
+		Anthropic's API version 2026-10-21 (the one the add-on sends) rejects
+		temperature/top_p/top_k on every model, whatever the metadata lists.
 		"""
 		key = (name or "").lower()
 		if key not in self._supported_param_set():
 			return False
-		if (
-			self.provider == Provider.Anthropic
-			and key in ("temperature", "top_p", "top_k")
-		):
-			from .anthropicthinking import anthropic_fixed_sampling_model
-			if anthropic_fixed_sampling_model(self.id):
-				return False
+		if self.provider == Provider.Anthropic and key in ("temperature", "top_p", "top_k"):
+			return False
 		return True
 
 	def metadata_default_for(self, name: str, fallback=None):

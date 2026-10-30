@@ -57,14 +57,22 @@ def _build_headers(api_key: str, organization: Optional[str] = None) -> dict:
 	return headers
 
 
-def _build_anthropic_headers(api_key: str) -> dict:
-	"""Headers for Anthropic Messages API (x-api-key + version pin)."""
-	return {
+# 2026-10-21 rejects temperature/top_p/top_k on every model:
+# https://platform.claude.com/docs/en/api/migration-2026-10-21
+ANTHROPIC_API_VERSION = "2026-10-21"
+
+
+def _build_anthropic_headers(api_key: str, betas=()) -> dict:
+	"""Headers for Anthropic Messages API (x-api-key + version pin, optional betas)."""
+	headers = {
 		"x-api-key": api_key,
-		"anthropic-version": "2023-06-01",
+		"anthropic-version": ANTHROPIC_API_VERSION,
 		"Content-Type": "application/json",
 		"User-Agent": _USER_AGENT,
 	}
+	if betas:
+		headers["anthropic-beta"] = ",".join(betas)
+	return headers
 
 
 def _open_streaming(opener, req, *, timeout: int) -> Any:
