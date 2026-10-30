@@ -48,6 +48,8 @@ confSpecs = {
 		"voxtralModel": f"string(default={VOXTRAL_MODELS[0]})",
 		"openaiTranscriptionAccountId": 'string(default="")',
 		"mistralTranscriptionAccountId": 'string(default="")',
+		"customOpenaiTranscriptionAccountId": 'string(default="")',
+		"customOpenaiTranscriptionModel": f"string(default={WHISPER_MODELS[0]})",
 		"whisper.cpp": {
 			"enabled": "boolean(default=False)",
 			"host": "string(default='http://127.0.0.1:8081')"

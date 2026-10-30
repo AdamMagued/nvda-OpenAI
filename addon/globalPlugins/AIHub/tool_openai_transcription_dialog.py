@@ -9,7 +9,8 @@ import addonHandler
 import wx
 from logHandler import log
 
-from .apiclient import APIConnectionError, APIStatusError, Transcription
+from . import apikeymanager
+from .apiclient import APIConnectionError, APIStatusError, Transcription, configure_client_for_provider
 from .conversations import ConversationFormat
 from .consts import (
 	Provider,
@@ -54,6 +55,7 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		self._worker = None
 		self._textResultPath = ""
 		self._rawResultPath = ""
+		self._addCustomOpenAIAccounts()
 		dialogSizer = wx.BoxSizer(wx.VERTICAL)
 		self.formPanel = wx.Panel(self)
 		main = wx.BoxSizer(wx.VERTICAL)
@@ -252,6 +254,33 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		if known_refs:
 			kwargs["known_speaker_references[]"] = known_refs
 		return kwargs
+
+	def _addCustomOpenAIAccounts(self):
+		"""Offer custom OpenAI-compatible accounts too: they usually expose the same audio endpoints."""
+		self._accountProviders = {acc.get("id"): Provider.OpenAI for acc in self._accounts}
+		try:
+			custom_accounts = apikeymanager.get(Provider.CustomOpenAI).list_accounts(include_env=True)
+		except Exception:
+			log.debug("Unable to list custom OpenAI-compatible accounts", exc_info=True)
+			return
+		for acc in custom_accounts:
+			acc_id = acc.get("id")
+			if not acc_id or acc_id in self._accountProviders:
+				continue
+			# Translators: Account drop-down entry in the OpenAI Transcription tool for a custom OpenAI-compatible endpoint account (placeholder is the account name).
+			label = _("{name} (custom OpenAI-compatible)").format(name=acc.get("name") or "Account")
+			self._accounts.append(dict(acc, name=label))
+			self._accountProviders[acc_id] = Provider.CustomOpenAI
+
+	def configure_client(self, account_id):
+		provider = self._accountProviders.get(account_id, Provider.OpenAI)
+		if provider == Provider.OpenAI:
+			super().configure_client(account_id)
+			return
+		if self.client is None:
+			# Translators: Internal error message when a tool tries to use the API client but the parent conversation has no active client (user should configure accounts).
+			raise RuntimeError(_("No API client available. Configure at least one account first."))
+		self.client = configure_client_for_provider(self.client, provider, account_id=account_id, clone=True)
 
 	def _run_thread(self, account_id, task, file_path, model, response_format, kwargs):
 		err = None

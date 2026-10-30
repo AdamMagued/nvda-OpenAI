@@ -2721,6 +2721,10 @@ class ConversationDialog(ModelHandlersMixin, AttachmentListUIMixin, FileHandlers
 					and ("voxtral" in model_id.lower() or "transcribe" in model_id.lower())
 				):
 					transcription_model = model_id
+			elif transcription_provider == TranscriptionProvider.CUSTOM_OPENAI:
+				transcription_account_id = self.conf["audio"].get("customOpenaiTranscriptionAccountId", "").strip()
+				if not transcription_account_id and account and account.get("provider") == Provider.CustomOpenAI:
+					transcription_account_id = account.get("id")
 		return {
 			"use_direct": use_direct,
 			"transcription_provider": transcription_provider,

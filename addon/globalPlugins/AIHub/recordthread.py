@@ -65,7 +65,6 @@ def transcribe_audio_file(path, conf, client=None):
 	else:
 		if not client:
 			return None
-		client = configure_client_for_provider(client, Provider.OpenAI, clone=True)
 		rt = RecordThread(client, conf=conf)
 		result = rt._transcribe_openai(path)
 	if result is None:
@@ -95,6 +94,19 @@ class WhisperTranscription:
 
 	def __init__(self, text):
 		self.text = text
+
+
+# Transcription provider -> (account provider, account-id config key, model config key, default model).
+_API_TRANSCRIPTION_SETTINGS = {
+	TranscriptionProvider.OPENAI: (Provider.OpenAI, "openaiTranscriptionAccountId", "whisperModel", "whisper-1"),
+	TranscriptionProvider.MISTRAL: (Provider.MistralAI, "mistralTranscriptionAccountId", "voxtralModel", "voxtral-mini-latest"),
+	TranscriptionProvider.CUSTOM_OPENAI: (
+		Provider.CustomOpenAI,
+		"customOpenaiTranscriptionAccountId",
+		"customOpenaiTranscriptionModel",
+		"whisper-1",
+	),
+}
 
 
 class AudioInputResult:
@@ -136,24 +148,18 @@ class RecordThread(threading.Thread):
 		self._transcriptionProvider = transcriptionProvider or get_transcription_provider(conf or {})
 		self._transcriptionAccountId = transcriptionAccountId
 		self._transcriptionModel = transcriptionModel
-		if self._transcriptionProvider == TranscriptionProvider.OPENAI:
+		settings = _API_TRANSCRIPTION_SETTINGS.get(self._transcriptionProvider)
+		if settings:
+			chat_provider, account_key, model_key, default_model = settings
+			manager = apikeymanager.get(chat_provider)
 			if not self._transcriptionAccountId:
-				self._transcriptionAccountId = (conf or {}).get("openaiTranscriptionAccountId", "")
-			if self._transcriptionAccountId and not apikeymanager.get(Provider.OpenAI).isReady(account_id=self._transcriptionAccountId):
+				self._transcriptionAccountId = (conf or {}).get(account_key, "")
+			if self._transcriptionAccountId and not manager.isReady(account_id=self._transcriptionAccountId):
 				self._transcriptionAccountId = ""
 			if not self._transcriptionAccountId:
-				self._transcriptionAccountId = apikeymanager.get(Provider.OpenAI).get_active_account_id()
+				self._transcriptionAccountId = manager.get_active_account_id()
 			if not self._transcriptionModel:
-				self._transcriptionModel = (conf or {}).get("whisperModel", "whisper-1")
-		elif self._transcriptionProvider == TranscriptionProvider.MISTRAL:
-			if not self._transcriptionAccountId:
-				self._transcriptionAccountId = (conf or {}).get("mistralTranscriptionAccountId", "")
-			if self._transcriptionAccountId and not apikeymanager.get(Provider.MistralAI).isReady(account_id=self._transcriptionAccountId):
-				self._transcriptionAccountId = ""
-			if not self._transcriptionAccountId:
-				self._transcriptionAccountId = apikeymanager.get(Provider.MistralAI).get_active_account_id()
-			if not self._transcriptionModel:
-				self._transcriptionModel = (conf or {}).get("voxtralModel", "voxtral-mini-latest")
+				self._transcriptionModel = (conf or {}).get(model_key, "") or default_model
 
 	def run(self):
 		if self.audioFile:
@@ -406,13 +412,18 @@ class RecordThread(threading.Thread):
 		return transcribe_audio_mistral(api_key=api_key, file_path=filename, model=model)
 
 	def _transcribe_openai(self, filename):
-		"""Transcribe via OpenAI Whisper API."""
+		"""Transcribe via the OpenAI (or an OpenAI-compatible) audio transcription API."""
 		if not self.client:
 			# Translators: Text in recording thread status and error messages.
 			raise ValueError(_("OpenAI client is not available for transcription."))
+		provider = (
+			Provider.CustomOpenAI
+			if self._transcriptionProvider == TranscriptionProvider.CUSTOM_OPENAI
+			else Provider.OpenAI
+		)
 		client = configure_client_for_provider(
 			self.client,
-			Provider.OpenAI,
+			provider,
 			account_id=self._transcriptionAccountId,
 			clone=True,
 		)

@@ -83,6 +83,8 @@ TOOLS_REGISTRY = (
 		"label": _("Transcription / Translation..."),
 		"group_label": Provider.OpenAI,
 		"manager_provider": Provider.OpenAI,
+		# Custom OpenAI-compatible accounts can also back this tool.
+		"alt_manager_providers": (Provider.CustomOpenAI,),
 		"dialog_module": ".tool_openai_transcription_dialog",
 		"dialog_class": "OpenAITranscriptionToolDialog",
 	},
@@ -160,11 +162,13 @@ def open_tool_dialog(parent, tool_def, conversationData=None, plugin=None):
 	manager_provider = tool_def.get("manager_provider")
 	group_label = tool_def.get("group_label")
 	if manager_provider:
-		try:
-			manager = apikeymanager.get(manager_provider)
-		except Exception:
-			manager = None
-		if manager and not manager.isReady():
+		managers = []
+		for provider in (manager_provider, *tool_def.get("alt_manager_providers", ())):
+			try:
+				managers.append(apikeymanager.get(provider))
+			except Exception:
+				pass
+		if managers and not any(m.isReady() for m in managers):
 			provider_label = group_label or manager_provider
 			wx.MessageBox(
 				# Translators: AI-Hub Tools menu: label for a submenu or action that opens a provider tool.

@@ -144,6 +144,7 @@ class TranscriptionProvider(StrEnum):
 	WHISPER_CPP = auto()
 	OPENAI = auto()
 	MISTRAL = auto()
+	CUSTOM_OPENAI = auto()
 
 
 TRANSCRIPTION_PROVIDERS = tuple(p.value for p in TranscriptionProvider)
