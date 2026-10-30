@@ -77,7 +77,12 @@ if hashCommit:
 # pythonSources = ["addon/globalPlugins/*.py"]
 # For more information on SCons Glob expressions please take a look at:
 # https://scons.org/doc/production/HTML/scons-user/apd.html
-pythonSources = ["addon/globalPlugins/AIHub/*.py"]
+pythonSources = [
+	"addon/globalPlugins/AIHub/*.py",
+	# Subpackages too: their strings must reach the translation template.
+	"addon/globalPlugins/AIHub/apiclient/*.py",
+	"addon/globalPlugins/AIHub/conversation_chrome/*.py",
+]
 
 # Files that contain strings for translation. Usually your python sources
 i18nSources = pythonSources + ["buildVars.py"]
