@@ -3,7 +3,6 @@
 import base64
 import json
 import threading
-import urllib.parse
 import urllib.request
 import winsound
 
@@ -22,12 +21,22 @@ from .consts import (
 	UI_FORM_ROW_BORDER_PX,
 	UI_SECTION_SPACING_PX,
 )
+from .apiclient._google import (
+	GEMINI_INTERACTIONS_URL,
+	build_google_native_headers,
+	gemini_model_url,
+	interaction_audio_result,
+)
 from .mediastore import build_media_path
 from .providertools_helpers import add_labeled_factory, extract_audio_b64, safe_float, safe_int
 from .thread_shutdown import stop_worker_thread
 from .tool_dialog_base import ToolDialogBase
 
 addonHandler.initTranslation()
+
+# Output formats offered by the Interactions AudioResponseFormat.mime_type enum.
+_OUTPUT_MIME_TYPES = {"wav": "audio/wav", "mp3": "audio/mp3", "opus": "audio/ogg_opus"}
+
 
 class Lyria3ProToolDialog(ToolDialogBase):
 	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None):
@@ -74,9 +83,9 @@ class Lyria3ProToolDialog(ToolDialogBase):
 		self.modelText = add_labeled_factory(
 			self.formPanel,
 			main,
-			# Translators: Label before the Lyria model id text field (default lyria-3-pro-preview).
+			# Translators: Label before the Lyria model id text field (default lyria-3.5).
 			_("&Model:"),
-			lambda: wx.TextCtrl(self.formPanel, value="lyria-3-pro-preview"),
+			lambda: wx.TextCtrl(self.formPanel, value="lyria-3.5"),
 		)
 		self.durationText = add_labeled_factory(
 			self.formPanel,
@@ -113,26 +122,19 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			_("Top &K:"),
 			lambda: wx.TextCtrl(self.formPanel, value=""),
 		)
-		self.cfgScaleText = add_labeled_factory(
-			self.formPanel,
-			main,
-			# Translators: Label before the optional classifier-free guidance scale field for Lyria.
-			_("&CFG scale:"),
-			lambda: wx.TextCtrl(self.formPanel, value=""),
-		)
 		self.sampleRateText = add_labeled_factory(
 			self.formPanel,
 			main,
-			# Translators: Label before the output audio sample rate in hertz (default 48000) for Lyria.
-			_("Sam&ple rate:"),
-			lambda: wx.TextCtrl(self.formPanel, value="48000"),
+			# Translators: Label before the optional output sample rate in hertz for Lyria (empty = model default).
+			_("Sam&ple rate (Hz, optional):"),
+			lambda: wx.TextCtrl(self.formPanel, value=""),
 		)
 		self.formatChoice = add_labeled_factory(
 			self.formPanel,
 			main,
-			# Translators: Label before the container format drop-down (wav, mp3, flac) for exported Lyria audio.
+			# Translators: Label before the audio format drop-down (wav, mp3, opus) for generated Lyria audio.
 			_("Output f&ormat:"),
-			lambda: wx.Choice(self.formPanel, choices=["wav", "mp3", "flac"]),
+			lambda: wx.Choice(self.formPanel, choices=list(_OUTPUT_MIME_TYPES)),
 		)
 		self.formatChoice.SetStringSelection("wav")
 
@@ -168,7 +170,6 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			self.temperatureText,
 			self.topPText,
 			self.topKText,
-			self.cfgScaleText,
 			self.sampleRateText,
 			self.formatChoice,
 			self.openGeneratedAudioBtn,
@@ -177,34 +178,51 @@ class Lyria3ProToolDialog(ToolDialogBase):
 		):
 			ctrl.Enable(not busy)
 
-	def _try_lyria_generate_via_openai_compat(self, account_id, model, prompt, negative_prompt, options):
-		self.configure_client(account_id)
-		user_prompt = prompt
-		if negative_prompt:
-			user_prompt += "\n\nNegative prompt: " + negative_prompt
-		resp = self.client.chat.completions.create(
-			model=model,
-			messages=[{"role": Role.USER, "content": user_prompt}],
-			stream=False,
-			modalities=["audio"],
-			audio={"format": "wav"},
-		)
-		if not resp or not getattr(resp, "choices", None):
-			return None
-		msg = getattr(resp.choices[0], "message", None)
-		audio = getattr(msg, "audio", None) if msg else None
-		if isinstance(audio, dict):
-			return {"audio": audio}
-		return None
-
-	def _try_lyria_generate_via_gemini_api(self, api_key, model, prompt, negative_prompt, options):
+	@staticmethod
+	def _build_prompt(prompt, negative_prompt, options):
+		"""Fold duration and negative prompt into the text: Lyria only takes a prompt."""
 		segments = [prompt.strip()]
 		dur = options.get("duration_seconds")
 		if isinstance(dur, int) and dur > 0:
 			segments.append(f"Target duration: {dur} seconds.")
 		if negative_prompt:
 			segments.append(f"Avoid: {negative_prompt.strip()}")
-		full_prompt = "\n\n".join(s for s in segments if s)
+		return "\n\n".join(s for s in segments if s)
+
+	@staticmethod
+	def _post_json(url, api_key, body):
+		req = urllib.request.Request(
+			url,
+			data=json.dumps(body).encode("utf-8"),
+			headers=build_google_native_headers(api_key),
+			method="POST",
+		)
+		with urllib.request.urlopen(req, timeout=300) as resp:
+			return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+	def _try_lyria_generate_via_interactions(self, api_key, model, full_prompt, options):
+		"""Documented Lyria endpoint: https://ai.google.dev/gemini-api/docs/music-generation
+
+		Output format and sample rate go in an AudioResponseFormat, the seed in
+		generation_config (https://ai.google.dev/api/interactions).
+		"""
+		body = {"model": model, "input": full_prompt}
+		response_format = {"type": "audio"}
+		mime = _OUTPUT_MIME_TYPES.get(options.get("response_format"))
+		if mime:
+			response_format["mime_type"] = mime
+		if options.get("sample_rate_hz"):
+			response_format["sample_rate"] = options["sample_rate_hz"]
+		body["response_format"] = response_format
+		if options.get("seed") is not None:
+			body["generation_config"] = {"seed": options["seed"]}
+		payload = self._post_json(GEMINI_INTERACTIONS_URL, api_key, body)
+		result = interaction_audio_result(payload)
+		if result is None:
+			raise ValueError("No audio in the Interactions API response.")
+		return result
+
+	def _try_lyria_generate_via_gemini_api(self, api_key, model, full_prompt, options):
 		body = {
 			"contents": [
 				{
@@ -220,16 +238,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			val = options.get(src)
 			if val is not None:
 				body["generationConfig"][dst] = val
-		encoded_model = urllib.parse.quote(model, safe="")
-		url = f"https://generativelanguage.googleapis.com/v1beta/models/{encoded_model}:generateContent?key={urllib.parse.quote(api_key)}"
-		req = urllib.request.Request(
-			url,
-			data=json.dumps(body).encode("utf-8"),
-			headers={"Content-Type": "application/json"},
-			method="POST",
-		)
-		with urllib.request.urlopen(req, timeout=300) as resp:
-			return json.loads(resp.read().decode("utf-8", errors="replace"))
+		return self._post_json(gemini_model_url(model, stream=False), api_key, body)
 
 	def _get_audio_ext(self, result):
 		if isinstance(result, dict):
@@ -263,7 +272,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 				fmt = audio.get("format")
 				if isinstance(fmt, str) and fmt:
 					fmt = fmt.lower().strip()
-					if fmt in ("wav", "mp3", "flac"):
+					if fmt in ("wav", "mp3", "flac", "ogg"):
 						return fmt
 				mime = audio.get("mimeType") or audio.get("mime_type")
 				if isinstance(mime, str):
@@ -277,13 +286,16 @@ class Lyria3ProToolDialog(ToolDialogBase):
 	def _run_generation_thread(self, account_id, api_key, prompt, negative, model, options):
 		err = None
 		result = None
+		full_prompt = self._build_prompt(prompt, negative, options)
 		try:
+			result = self._try_lyria_generate_via_interactions(api_key, model, full_prompt, options)
+		except Exception as interactions_err:
+			# Older Lyria previews answered on generateContent; report the
+			# documented endpoint's error if that fails too.
 			try:
-				result = self._try_lyria_generate_via_gemini_api(api_key, model, prompt, negative, options)
+				result = self._try_lyria_generate_via_gemini_api(api_key, model, full_prompt, options)
 			except Exception:
-				result = self._try_lyria_generate_via_openai_compat(account_id, model, prompt, negative, options)
-		except Exception as e:
-			err = e
+				err = interactions_err
 		wx.CallAfter(self._onGenerationDone, result, err, options.get("response_format", "wav"))
 
 	def _onGenerationDone(self, result, err, requested_format):
@@ -327,7 +339,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 		self.suggest_open_audio(out_path)
 		prompt_text = self.promptText.GetValue().strip()
 		negative_text = self.negativePromptText.GetValue().strip()
-		model_text = self.modelText.GetValue().strip() or "lyria-3-pro-preview"
+		model_text = self.modelText.GetValue().strip() or "lyria-3.5"
 		self.save_tool_conversation(
 			# Translators: Title stored on the synthetic «tool output» conversation tab after Lyria 3 Pro finishes successfully.
 			title=_("Tool output: Lyria 3 Pro"),
@@ -350,8 +362,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 					"temperature": safe_float(self.temperatureText.GetValue(), default=None),
 					"top_p": safe_float(self.topPText.GetValue(), default=None),
 					"top_k": safe_int(self.topKText.GetValue(), default=None),
-					"cfg_scale": safe_float(self.cfgScaleText.GetValue(), default=None),
-					"sample_rate_hz": safe_int(self.sampleRateText.GetValue(), default=48000),
+					"sample_rate_hz": safe_int(self.sampleRateText.GetValue(), default=None),
 				},
 			},
 		)
@@ -383,7 +394,6 @@ class Lyria3ProToolDialog(ToolDialogBase):
 				("temperature", self.temperatureText),
 				("top_p", self.topPText),
 				("top_k", self.topKText),
-				("cfg_scale", self.cfgScaleText),
 				("sample_rate_hz", self.sampleRateText),
 			):
 				val = options.get(key)
@@ -420,7 +430,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			self.promptText.SetFocus()
 			return
 		negative = self.negativePromptText.GetValue().strip()
-		model = self.modelText.GetValue().strip() or "lyria-3-pro-preview"
+		model = self.modelText.GetValue().strip() or "lyria-3.5"
 		fmt = self.formatChoice.GetStringSelection() or "wav"
 		options = {
 			"duration_seconds": safe_int(self.durationText.GetValue(), default=None),
@@ -428,8 +438,7 @@ class Lyria3ProToolDialog(ToolDialogBase):
 			"temperature": safe_float(self.temperatureText.GetValue(), default=None),
 			"top_p": safe_float(self.topPText.GetValue(), default=None),
 			"top_k": safe_int(self.topKText.GetValue(), default=None),
-			"cfg_scale": safe_float(self.cfgScaleText.GetValue(), default=None),
-			"sample_rate_hz": safe_int(self.sampleRateText.GetValue(), default=48000),
+			"sample_rate_hz": safe_int(self.sampleRateText.GetValue(), default=None),
 			"response_format": fmt,
 		}
 		options = {k: v for k, v in options.items() if v is not None}

@@ -274,6 +274,35 @@ def build_gemini_generate_content_body(model_id: str, messages: list, kwargs: di
 	return body
 
 
+GEMINI_INTERACTIONS_URL = f"{GEMINI_API_ROOT}/interactions"
+
+
+def interaction_audio_result(payload: Any) -> Optional[dict[str, Any]]:
+	"""First base64 audio block of an Interactions API result, as ``{"audio": {...}}``.
+
+	Audio comes in ``steps[type=model_output].content[type=audio].data``:
+	https://ai.google.dev/gemini-api/docs/music-generation
+	"""
+	if not isinstance(payload, dict):
+		return None
+	for step in payload.get("steps") or []:
+		if not isinstance(step, dict) or step.get("type") != "model_output":
+			continue
+		for block in step.get("content") or []:
+			if isinstance(block, dict) and block.get("type") == "audio" and block.get("data"):
+				mime = str(block.get("mime_type") or block.get("mimeType") or "audio/mpeg").lower()
+				if "wav" in mime:
+					fmt = "wav"
+				elif "ogg" in mime or "opus" in mime:
+					fmt = "ogg"
+				elif "flac" in mime:
+					fmt = "flac"
+				else:
+					fmt = "mp3"
+				return {"audio": {"data": block["data"], "format": fmt, "mimeType": mime}}
+	return None
+
+
 def gemini_model_url(model_id: str, *, stream: bool) -> str:
 	encoded = urllib.parse.quote(model_id, safe="")
 	action = "streamGenerateContent" if stream else "generateContent"
