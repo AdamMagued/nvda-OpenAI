@@ -1,4 +1,5 @@
 import json
+from datetime import date
 import urllib.request
 import urllib.error
 import addonHandler
@@ -149,6 +150,29 @@ class Model:
 			return float(pricing.get("web_search") or 0) > 0
 		except (TypeError, ValueError):
 			return False
+
+	@property
+	def expiration_date(self) -> date | None:
+		"""Catalog ``expiration_date`` (the provider's retirement date), or ``None``."""
+		raw = self.extraInfo.get("expiration_date") if isinstance(self.extraInfo, dict) else None
+		if not isinstance(raw, str) or not raw.strip():
+			return None
+		try:
+			return date.fromisoformat(raw.strip()[:10])
+		except ValueError:
+			return None
+
+	@property
+	def is_retired(self) -> bool:
+		"""True once the catalog retirement date has passed."""
+		expires = self.expiration_date
+		return bool(expires and expires <= date.today())
+
+	@property
+	def knowledge_cutoff(self) -> str:
+		"""Catalog ``knowledge_cutoff`` as published (e.g. ``Jun 2026``), or ``""``."""
+		raw = self.extraInfo.get("knowledge_cutoff") if isinstance(self.extraInfo, dict) else None
+		return raw.strip() if isinstance(raw, str) else ""
 
 	@property
 	def supports_x_search(self):

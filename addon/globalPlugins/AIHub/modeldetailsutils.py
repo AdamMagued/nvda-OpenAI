@@ -27,6 +27,64 @@ def _format_price_per_million(value):
 	return f"${_format_number(price * 1000000, 3)}/Mtok"
 
 
+def _price_labels():
+	return {
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"prompt": _("Input tokens"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"completion": _("Output tokens"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"input_cache_read": _("Input cache read"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"input_cache_write": _("Input cache write"),
+		# Translators: AI-Hub model details: price of writing to the prompt cache with a 1-hour lifetime.
+		"input_cache_write_1h": _("Input cache write (1 hour)"),
+		# Translators: AI-Hub model details: price of reasoning (thinking) tokens.
+		"internal_reasoning": _("Reasoning tokens"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"audio": _("Audio tokens"),
+		# Translators: AI-Hub model details: price of generated audio tokens.
+		"audio_output": _("Audio output tokens"),
+		# Translators: AI-Hub model details: price of cached audio input tokens.
+		"input_audio_cache": _("Audio input cache read"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"image": _("Image"),
+		# Translators: AI-Hub model details: price of generated image tokens.
+		"image_output": _("Image output tokens"),
+		# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+		"request": _("Request"),
+		# Translators: AI-Hub model details: price of one search made by the provider's web search tool.
+		"web_search": _("Web search"),
+	}
+
+
+# Catalog prices charged per unit rather than per token.
+_PER_UNIT_PRICES = {
+	"request": "request",
+	"web_search": "search",
+}
+
+
+def _pricing_items(pricing):
+	"""``<li>`` entries for the non-zero prices of one pricing dict."""
+	labels = _price_labels()
+	items = []
+	for key, value in pricing.items():
+		if key in ("overrides", "min_prompt_tokens"):
+			continue
+		price = _parse_price(value)
+		if price is not None and price <= 0:
+			continue
+		label = labels.get(key, key)
+		if price is None:
+			items.append(_li(label, value))
+		elif key in _PER_UNIT_PRICES:
+			items.append(_li(label, f"${_format_number(price, 4)}/{_PER_UNIT_PRICES[key]}"))
+		else:
+			items.append(_li(label, _format_price_per_million(price)))
+	return items
+
+
 def _format_number(value, decimals=None):
 	"""Format numbers using the currently active locale."""
 	try:
@@ -299,6 +357,16 @@ def build_model_details_html(model):
 	# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
 	_append_item(parts, _("Created"), created)
 	# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
+	_append_item(parts, _("Knowledge cutoff"), getattr(model, "knowledge_cutoff", "") or None)
+	expires = getattr(model, "expiration_date", None)
+	if expires:
+		value = expires.strftime("%x")
+		if getattr(model, "is_retired", False):
+			# Translators: AI-Hub model details: appended to the retirement date once it has passed.
+			value = _("{date} (retired)").format(date=value)
+		# Translators: AI-Hub model details (browseable HTML): date on which the provider retires the model.
+		_append_item(parts, _("Retirement date"), value)
+	# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
 	_append_item(parts, _("Max temperature"), model.maxTemperature)
 	# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
 	_append_item(parts, _("Default temperature"), model.defaultTemperature)
@@ -369,41 +437,25 @@ def build_model_details_html(model):
 
 	pricing = model.extraInfo.get("pricing", {}) if isinstance(model.extraInfo, dict) else {}
 	if isinstance(pricing, dict) and pricing:
+		price_items = _pricing_items(pricing)
+		for tier in pricing.get("overrides") or []:
+			if not isinstance(tier, dict):
+				continue
+			threshold = tier.get("min_prompt_tokens")
+			tier_items = _pricing_items(tier)
+			if threshold and tier_items:
+				# Translators: AI-Hub model details: heading of a long-context price tier; {tokens} is the prompt size from which it applies.
+				heading = _("From {tokens} prompt tokens").format(tokens=_format_number(int(threshold)))
+				price_items.append(f"<li><strong>{escape(heading)}:</strong><ul>{''.join(tier_items)}</ul></li>")
+	else:
+		price_items = []
+	if price_items:
 		parts.extend([
 			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
 			"<h2>%s</h2>" % escape(_("Pricing")),
 			"<ul>",
 		])
-		price_labels = {
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"prompt": _("Input tokens"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"completion": _("Output tokens"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"input_cache_read": _("Input cache read"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"input_cache_write": _("Input cache write"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"audio": _("Audio tokens"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"image": _("Image"),
-			# Translators: AI-Hub model details (browseable HTML): label, section heading, capability tag, or table cell in the generated report.
-			"request": _("Request"),
-		}
-		for key, value in pricing.items():
-			label = price_labels.get(key, key)
-			if key == "request":
-				price = _parse_price(value)
-				if price is not None:
-					parts.append(_li(label, f"${_format_number(price, 6)}/request"))
-				else:
-					parts.append(_li(label, value))
-			else:
-				per_m = _format_price_per_million(value)
-				if per_m:
-					parts.append(_li(label, per_m))
-				else:
-					parts.append(_li(label, value))
+		parts.extend(price_items)
 		parts.append("</ul>")
 
 	benchmarks = model.extraInfo.get("benchmarks") if isinstance(model.extraInfo, dict) else None
@@ -412,7 +464,15 @@ def build_model_details_html(model):
 	extra = model.extraInfo if isinstance(model.extraInfo, dict) else {}
 	if extra:
 		extra = dict(extra)
-		for key in ("pricing", "created", "supported_parameters", "reasoning", "benchmarks"):
+		for key in (
+			"pricing",
+			"created",
+			"supported_parameters",
+			"reasoning",
+			"benchmarks",
+			"knowledge_cutoff",
+			"expiration_date",
+		):
 			extra.pop(key, None)
 		extra = _clean_value(extra) or {}
 	if extra:

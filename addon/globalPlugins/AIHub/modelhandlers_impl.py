@@ -254,7 +254,16 @@ class ModelHandlersMixin:
 		cap_str = ", ".join(capabilities)
 		ctx_k = model.contextWindow // 1000
 		suffix = " *" if self._isModelFavorite(model) else ""
-		return f"{model.name}{suffix}  |  {cap_str}  |  {ctx_k}k"
+		label = f"{model.name}{suffix}  |  {cap_str}  |  {ctx_k}k"
+		expires = getattr(model, "expiration_date", None)
+		if expires:
+			if getattr(model, "is_retired", False):
+				# Translators: Suffix in the model list for a model whose provider retirement date has passed.
+				label += "  |  " + _("retired")
+			else:
+				# Translators: Suffix in the model list for a model the provider will retire; {date} is the retirement date.
+				label += "  |  " + _("retires {date}").format(date=expires.strftime("%x"))
+		return label
 
 	def _getDefaultSelection(self):
 		account = self.getCurrentAccount()
