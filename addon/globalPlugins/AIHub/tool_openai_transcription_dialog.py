@@ -9,7 +9,13 @@ import wx
 from logHandler import log
 
 from . import apikeymanager
-from .apiclient import APIConnectionError, APIStatusError, Transcription, configure_client_for_provider
+from .apiclient import (
+	APIConnectionError,
+	APIStatusError,
+	OpenAIClient,
+	Transcription,
+	configure_client_for_provider,
+)
 from .conversations import ConversationFormat
 from .consts import (
 	Provider,
@@ -48,16 +54,18 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		"gpt-4o-mini-transcribe",
 	)
 
-	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None):
+	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None, provider=Provider.OpenAI):
+		self.provider = provider
+		title = _("Tool: Custom OpenAI Transcription") if provider == Provider.CustomOpenAI else _("Tool: OpenAI Transcription")
 		super().__init__(
 			parent,
-			# Translators: Window title of the AI-Hub OpenAI Transcription / Translation tool dialog.
-			title=_("Tool: OpenAI Transcription"),
-			provider=Provider.OpenAI,
+			title=title,
+			provider=provider,
 			size=(860, 880),
 			parentDialog=parentDialog,
 			plugin=plugin,
 		)
+		self._accounts = self._load_transcription_accounts()
 		self._worker = None
 		self._textResultPath = ""
 		self._rawResultPath = ""
@@ -178,6 +186,65 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		self._refreshTaskDependentControls()
 		self._syncOpenButtons()
 
+	def _load_transcription_accounts(self):
+		accounts = []
+		primary_provider = self.provider or Provider.OpenAI
+		try:
+			primary_mgr = apikeymanager.get(primary_provider)
+			for acc in primary_mgr.list_accounts(include_env=(primary_provider == Provider.OpenAI)):
+				a = dict(acc)
+				a["_provider"] = primary_provider
+				accounts.append(a)
+		except Exception:
+			pass
+		alt_provider = Provider.CustomOpenAI if primary_provider == Provider.OpenAI else Provider.OpenAI
+		try:
+			alt_mgr = apikeymanager.get(alt_provider)
+			for acc in alt_mgr.list_accounts(include_env=(alt_provider == Provider.OpenAI)):
+				a = dict(acc)
+				a["_provider"] = alt_provider
+				accounts.append(a)
+		except Exception:
+			pass
+		return accounts
+
+	def build_account_choice(self, parent):
+		labels = []
+		has_multiple_providers = len({acc.get("_provider") for acc in self._accounts}) > 1
+		for acc in self._accounts:
+			name = acc.get("name", "Account")
+			p = acc.get("_provider", self.provider)
+			label = f"{name} ({p})" if has_multiple_providers else name
+			labels.append(label)
+		choice = wx.Choice(parent, choices=labels or [_("No account configured")])
+		if labels:
+			active_id = self.manager.get_active_account_id() if self.manager else None
+			idx = 0
+			for i, acc in enumerate(self._accounts):
+				if acc.get("id") == active_id and acc.get("_provider") == self.provider:
+					idx = i
+					break
+			choice.SetSelection(idx)
+		else:
+			choice.SetSelection(0)
+			choice.Disable()
+		return choice
+
+	def configure_client(self, account_id):
+		if self.client is None:
+			self.client = OpenAIClient()
+		selected_acc = None
+		for acc in getattr(self, "_accounts", []):
+			if acc.get("id") == account_id:
+				selected_acc = acc
+				break
+		provider = (
+			selected_acc.get("_provider")
+			if selected_acc and "_provider" in selected_acc
+			else getattr(self, "_accountProviders", {}).get(account_id, getattr(self, "provider", Provider.OpenAI))
+		)
+		self.client = configure_client_for_provider(self.client, provider, account_id=account_id, clone=True)
+
 	def _getTaskValue(self) -> str:
 		return "translation" if self.taskChoice.GetSelection() == 1 else "transcription"
 
@@ -292,16 +359,6 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 			label = _("{name} (custom OpenAI-compatible)").format(name=acc.get("name") or "Account")
 			self._accounts.append(dict(acc, name=label))
 			self._accountProviders[acc_id] = Provider.CustomOpenAI
-
-	def configure_client(self, account_id):
-		provider = self._accountProviders.get(account_id, Provider.OpenAI)
-		if provider == Provider.OpenAI:
-			super().configure_client(account_id)
-			return
-		if self.client is None:
-			# Translators: Internal error message when a tool tries to use the API client but the parent conversation has no active client (user should configure accounts).
-			raise RuntimeError(_("No API client available. Configure at least one account first."))
-		self.client = configure_client_for_provider(self.client, provider, account_id=account_id, clone=True)
 
 	def _run_thread(self, account_id, task, file_path, model, response_format, kwargs):
 		err = None
@@ -523,3 +580,14 @@ class OpenAITranscriptionToolDialog(ToolDialogBase):
 		# Translators: Status line on the modal progress window while OpenAI is transcribing or translating the selected audio file.
 		self.begin_long_task(_("Transcription in progress..."), self._setBusy)
 		self._worker = start_background(self._run_thread, account_id, task, file_path, model, response_format, kwargs)
+
+
+class CustomOpenAITranscriptionToolDialog(OpenAITranscriptionToolDialog):
+	def __init__(self, parent, conversationData=None, parentDialog=None, plugin=None):
+		super().__init__(
+			parent,
+			conversationData=conversationData,
+			parentDialog=parentDialog,
+			plugin=plugin,
+			provider=Provider.CustomOpenAI,
+		)

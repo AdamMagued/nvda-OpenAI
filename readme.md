@@ -27,7 +27,7 @@ Configure **one or more providers** in NVDA **Preferences → Settings → AI-Hu
 |----------|------|
 | [OpenAI](https://platform.openai.com/) | GPT and related models; official transcription and TTS tool dialogs |
 | [DeepSeek](https://www.deepseek.com/) | DeepSeek API (OpenAI-compatible) |
-| **Custom OpenAI** | Any OpenAI-compatible HTTP API (custom base URL + key) |
+| **Custom OpenAI** | Any OpenAI-compatible HTTP API (custom base URL + key); transcription tool dialog |
 | **Ollama** | Local models via OpenAI-compatible endpoint; model manager tool |
 | [Mistral AI](https://mistral.ai/) | Mistral / Pixtral; Voxtral TTS, OCR, and speech-to-text tools |
 | [OpenRouter](https://openrouter.ai/) | Many third-party models behind one key |
@@ -40,7 +40,7 @@ The add-on can pick up API keys from **environment variables** when set (for exa
 
 ### Speech-to-text (transcription) backends
 
-For **microphone / file transcription** inside the main flow (not the separate OpenAI transcription tool), you can choose among **whisper_cpp** (local), **openai** (Whisper API), and **mistral**, under the **Audio** section of AI-Hub settings.
+For **microphone / file transcription** inside the main flow, you can choose among **whisper_cpp** (local), **openai** (Whisper API), **mistral**, and **custom_openai** (custom OpenAI-compatible endpoint), under the **Audio** section of AI-Hub settings.
 
 ## Installation
 

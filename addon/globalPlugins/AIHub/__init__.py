@@ -76,9 +76,11 @@ class GlobalPlugin(MenuMixin, DialogSessionMixin, AskRecordingMixin, globalPlugi
 			if not manager.isReady():
 				continue
 			api_key = manager.get_api_key()
-			base_url = manager.get_base_url() or BASE_URLs[manager.provider]
+			base_url = manager.get_base_url() or BASE_URLs.get(manager.provider)
+			if base_url:
+				base_url = base_url.rstrip("/")
 			if provider not in _OPTIONAL_API_KEY_PROVIDERS and (not api_key or not api_key.strip()):
-				return None
+				continue
 			organization = manager.get_api_key(use_org=True)
 			org_val = organization.split(":=", 1)[1] if organization and organization.count(":=") == 1 else None
 			return OpenAIClient(api_key=api_key, base_url=base_url, organization=org_val)

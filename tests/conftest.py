@@ -7,12 +7,23 @@ running its ``__init__`` (which needs a live NVDA), so tests can import
 """
 
 import builtins
+import enum
 import logging
 import os
 import sys
 import tempfile
 import types
 from unittest import mock
+
+if not hasattr(enum, "StrEnum"):
+	class StrEnum(str, enum.Enum):
+		def _generate_next_value_(name, start, count, last_values):
+			return name.lower()
+
+		def __str__(self):
+			return str(self.value)
+
+	enum.StrEnum = StrEnum
 
 ADDON_PACKAGE_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "addon", "globalPlugins", "AIHub")
 
@@ -26,7 +37,7 @@ def _stub(name, **attrs):
 
 builtins._ = lambda text: text
 builtins.ngettext = lambda singular, plural, count: singular if count == 1 else plural
-_stub("addonHandler", initTranslation=lambda: None, getCodeAddon=mock.MagicMock())
+_stub("addonHandler", initTranslation=lambda: None, getCodeAddon=mock.MagicMock(), Addon=mock.MagicMock())
 _stub("logHandler", log=logging.getLogger("AIHub"))
 _stub("globalVars", appArgs=types.SimpleNamespace(configPath=tempfile.mkdtemp(prefix="aihub-tests-")))
 _stub("config", conf={})
@@ -36,6 +47,12 @@ if "winsound" not in sys.modules:
 	except ImportError:
 		_stub("winsound", PlaySound=lambda *a, **k: None, SND_ASYNC=1, SND_LOOP=8)
 sys.modules.setdefault("wx", mock.MagicMock(name="wx"))
+sys.modules.setdefault("markdown_it", mock.MagicMock(name="markdown_it"))
+if "PIL" not in sys.modules:
+	pil_mock = mock.MagicMock(name="PIL")
+	sys.modules["PIL"] = pil_mock
+	sys.modules["PIL.Image"] = pil_mock.Image
+	sys.modules["PIL.ImageGrab"] = pil_mock.ImageGrab
 
 package = types.ModuleType("AIHub")
 package.__path__ = [os.path.abspath(ADDON_PACKAGE_DIR)]

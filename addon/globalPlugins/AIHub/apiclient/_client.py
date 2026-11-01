@@ -86,7 +86,7 @@ class OpenAIClient:
 
 	def __init__(
 		self,
-		api_key: str,
+		api_key: Optional[str] = "",
 		base_url: str = "https://api.openai.com/v1",
 		organization: Optional[str] = None,
 	):
@@ -484,7 +484,8 @@ class OpenAIClient:
 		body, content_type = _build_audio_text_body(file, model, response_format, kwargs)
 		headers = _build_headers(self.api_key, self.organization)
 		headers["Content-Type"] = content_type
-		url = f"{self.base_url}{endpoint}"
+		base = (self.base_url or "").rstrip("/")
+		url = f"{base}{endpoint}"
 		req = urllib.request.Request(url, data=body, headers=headers, method="POST")
 		raw, _ct = _open_bytes(self._opener, req, timeout=120)
 		text = raw.decode("utf-8", errors="replace")
@@ -623,7 +624,10 @@ def configure_client_for_provider(
 	if clone and hasattr(client, "clone"):
 		client = client.clone()
 	manager = apikeymanager.get(provider)
-	client.base_url = manager.get_base_url(account_id=account_id) or BASE_URLs[provider]
+	base_url = manager.get_base_url(account_id=account_id) or BASE_URLs.get(provider)
+	if base_url:
+		base_url = base_url.rstrip("/")
+	client.base_url = base_url
 	api_key = manager.get_api_key(account_id=account_id)
 	# Ollama doesn't require an API key; supply a placeholder so the Bearer header is set
 	# (some Ollama-compatible reverse proxies reject empty Authorization headers).
